@@ -649,178 +649,6 @@ md"""
 In the following cell, we define utility plot functions to have a glimpse at images, cell costs and paths. Their implementation is not at the core of this tutorial, they are thus hidden.
 """
 
-# ╔═╡ 90c5cf85-de79-43db-8cba-39fda06938e6
-begin 
-	"""
-	    convert_image_for_plot(image::Array{Float32,3})::Array{RGB{N0f8},2}
-	Convert `image` to the proper data format to enable plots in Julia.
-	"""
-	function convert_image_for_plot(image::Array{Float32,3})::Array{RGB{N0f8},2}
-	    new_img = Array{RGB{N0f8},2}(undef, size(image)[1], size(image)[2])
-	    for i = 1:size(image)[1]
-	        for j = 1:size(image)[2]
-	            new_img[i,j] = RGB{N0f8}(image[i,j,1], image[i,j,2], image[i,j,3])
-	        end
-	    end
-	    return new_img
-	end
-
-		"""
-		plot_image_weights(;im, weights)
-	Plot the image `im` and the weights `weights` on the same Figure.
-	"""
-	function plot_image_weights(x, θ; θ_title="Weights", θ_true=θ)
-		im = dropdims(x; dims=4)
-		img = convert_image_for_plot(im)
-	    p1 = Plots.plot(
-	        img;
-	        aspect_ratio=:equal,
-	        framestyle=:none,
-	        size=(300, 300),
-			title="Terrain image"
-	    )
-		p2 = Plots.heatmap(
-			θ;
-			yflip=true,
-			aspect_ratio=:equal,
-			framestyle=:none,
-			padding=(0., 0.),
-			size=(300, 300),
-			legend=false,
-			title=θ_title,
-			clim=(minimum(θ_true), maximum(θ_true))
-		)
-	    plot(p1, p2, layout = (1, 2), size = (900, 300))
-	end
-
-		"""
-		plot_image_weights_masks(;im, weights, mask)
-	Plot the image `im`, the weights `weights` and the mask `mask` on the same Figure.
-	"""
-	function plot_image_weights_masks(x, θ, mask; θ_title="Weights", θ_true=θ)
-		im = dropdims(x; dims=4)
-		img = convert_image_for_plot(im)
-		mask_img = convert_image_for_plot(mask)
-	    p1 = Plots.plot(
-	        img;
-	        aspect_ratio=:equal,
-	        framestyle=:none,
-	        size=(300, 300),
-			title="Terrain image"
-	    )
-		p2 = Plots.plot(
-			mask_img;
-			aspect_ratio=:equal,
-			framestyle=:none,
-			size=(300, 300),
-			title="Route mask"
-		)
-		p3 = Plots.heatmap(
-			θ;
-			yflip=true,
-			aspect_ratio=:equal,
-			framestyle=:none,
-			padding=(0., 0.),
-			size=(300, 300),
-			legend=false,
-			title=θ_title,
-			clim=(minimum(θ_true), maximum(θ_true))
-		)
-	    plot(p1, p2, p3, layout = (1, 3), size = (900, 300))
-	end
-	
-	"""
-		plot_image_weights_path(;im, weights, path)
-	Plot the image `im`, the weights `weights`, and the path `path` on the same Figure.
-	"""
-	function plot_image_weights_path(x, y, θ; θ_title="Weights", y_title="Path", θ_true=θ)
-		im = dropdims(x; dims=4)
-		img = convert_image_for_plot(im)
-	    p1 = Plots.plot(
-	        img;
-	        aspect_ratio=:equal,
-	        framestyle=:none,
-	        size=(300, 300),
-			title="Terrain image"
-	    )
-		p2 = Plots.heatmap(
-			θ;
-			yflip=true,
-			aspect_ratio=:equal,
-			framestyle=:none,
-			padding=(0., 0.),
-			size=(300, 300),
-			legend=false,
-			title=θ_title,
-			clim=(minimum(θ_true), maximum(θ_true))
-		)
-		p3 = Plots.plot(
-	        Gray.(y .* 0.7);
-	        aspect_ratio=:equal,
-	        framestyle=:none,
-	        size=(300, 300),
-			title=y_title
-	    )
-	    plot(p1, p2, p3, layout = (1, 3), size = (900, 300))
-	end
-
-	"""
-		plot_image_masks_weights_path(;im, mask, weights, path)
-	Plot the image `im`, the weights `weights`, the mask `mask` and the path `path` on the same Figure.
-	"""
-	function plot_image_masks_weights_path(x, mask, θ, y; θ_title="Weights", θ_true=θ)
-		im = dropdims(x; dims=4)
-		img = convert_image_for_plot(im)
-		mask_img = convert_image_for_plot(mask)
-	    p1 = Plots.plot(
-	        img;
-	        aspect_ratio=:equal,
-	        framestyle=:none,
-	        size=(300, 300),
-			title="Terrain image"
-	    )
-		p2 = Plots.plot(
-			mask_img;
-			aspect_ratio=:equal,
-			framestyle=:none,
-			size=(300, 300),
-			title="Route mask"
-		)
-		p3 = Plots.heatmap(
-			θ;
-			yflip=true,
-			aspect_ratio=:equal,
-			framestyle=:none,
-			padding=(0., 0.),
-			size=(300, 300),
-			legend=false,
-			title=θ_title,
-			clim=(minimum(θ_true), maximum(θ_true))
-		)
-		p4 = Plots.plot(
-			Gray.(y .* 0.7);
-			aspect_ratio=:equal,
-			framestyle=:none,
-			size=(300, 300),
-			title="Shortest path"
-		)
-	    plot(p1, p2, p3, p4, layout = (2, 2), size = (900, 600))
-	end
-	
-	"""
-	    plot_loss_and_gap(losses::Matrix{Float64}, gaps::Matrix{Float64},  options::NamedTuple; filepath=nothing)
-	
-	Plot the train and test losses, as well as the train and test gaps computed over epochs.
-	"""
-	function plot_loss_and_gap(losses::Matrix{Float64}, gaps::Matrix{Float64}; filepath=nothing)
-	    p1 = plot(collect(1:nb_epochs), losses, title = "Loss", xlabel = "epochs", ylabel = "loss", label = ["train" "test"])
-	    p2 = plot(collect(0:nb_epochs), gaps, title = "Gap", xlabel = "epochs", ylabel = "ratio", label = ["train" "test"])
-	    pl = plot(p1, p2, layout = (1, 2))
-	    isnothing(filepath) || Plots.savefig(pl, filepath)
-	    return pl
-	end
-end;
-
 # ╔═╡ 03bc22e3-2afa-4139-b8a4-b801dd8d3f4d
 md"""
 ### d) Import and explore the dataset
@@ -852,9 +680,6 @@ We can have a glimpse at the dataset, use the slider to visualize each tuple (im
 md"""
 ``n =`` $(@bind n Slider(1:length(dataset); default=1, show_value=true))
 """
-
-# ╔═╡ c4b40ca8-00b0-4ea0-9793-f06adcb44f12
-plot_image_masks_weights_path(dataset[n]...)
 
 # ╔═╡ ebee2d90-d2a8-44c1-ae0b-2823c007bf1d
 md"""
@@ -971,18 +796,12 @@ md"""
 ``n_p =`` $(@bind n_p Slider(1:length(dataset); default=1, show_value=true))
 """
 
-# ╔═╡ 62d66917-ef2e-4e64-ae6d-c281b8e81b4f
-plot_image_weights_masks(dataset[n_p][1], dataset[n_p][3], dataset[n_p][2])
-
 # ╔═╡ 67d8f55d-bdbe-4407-bf9b-b34805edcb76
 ground_truth_path = bellman_maximizer(-dataset[n_p][3])
 
-# ╔═╡ 34701d56-63d1-4f6d-b3d0-52705f4f8820
-plot_image_weights_path(dataset[n_p][1], ground_truth_path, dataset[n_p][3]; θ_title="Weights", y_title="Path", θ_true=dataset[n_p][3])
-
 # ╔═╡ 87cbc472-6330-4a27-b10f-b8d881b79249
 md"""
-The following cell is used to create and save the shortest paths based on ground truth weights
+The following cell is used to create and save the shortest paths based on ground truth weights:
 """
 
 # ╔═╡ 3476d181-ba67-4597-b05c-9caec23fa1e5
@@ -994,6 +813,549 @@ The following cell is used to create and save the shortest paths based on ground
 # 		npzwrite(joinpath(decompressed_path, "train", "$(names_dtype[i])_shortest_path.npy"), ground_truth_path)
 # 	end
 # end
+
+# ╔═╡ b8b79a69-2bbb-4329-a1d0-3429230787c1
+md"""
+## III - Learning functions
+"""
+
+# ╔═╡ 37761f25-bf80-47ee-9fca-06fce1047364
+md"""
+### a) Convolutional neural network: predictor for the cost vector
+"""
+
+# ╔═╡ 97df1403-7858-4715-856d-f330926a9bfd
+md"""
+We implemenat several elementary functions to define our machine learning predictor for the cell costs.
+"""
+
+# ╔═╡ 02d14966-9887-40cb-a04d-09774ff72d27
+"""
+    average_tensor(x)
+
+Average the tensor `x` along its third axis.
+"""
+function average_tensor(x)
+    return sum(x, dims = [3])/size(x)[3]
+end
+
+# ╔═╡ a9ca100d-8881-4c31-9ab9-e987baf91e2c
+"""
+    neg_tensor(x)
+
+Compute minus softplus element-wise on tensor `x`.
+"""
+function neg_tensor(x)
+    return -softplus.(x)
+end
+
+# ╔═╡ 721893e8-9252-4fcd-9ef7-59b70bffb916
+"""
+    squeeze_last_dims(x)
+
+Squeeze two last dimensions on tensor `x`.
+"""
+function squeeze_last_dims(x)
+    return reshape(x, size(x, 1), size(x, 2))
+end
+
+# ╔═╡ 8666701b-223f-4dfc-a4ff-aec17c7e0ab2
+md"""
+!!! info "CNN as predictor"
+	The following function defines the convolutional neural network we will use as cell costs predictor.
+"""
+
+# ╔═╡ 1df5a84a-7ef3-43fc-8ffe-6a8245b31f8e
+"""
+    create_satellite_embedding()
+
+Create and return a `Flux.Chain` embedding for the satellite images, inspired by [differentiation of blackbox combinatorial solvers](https://github.com/martius-lab/blackbox-differentiation-combinatorial-solvers/blob/master/models.py).
+
+The embedding is made as follows:
+1) The first 5 layers of ResNet18 (convolution, batch normalization, relu, maxpooling and first resnet block).
+2) An adaptive maxpooling layer to get a (12x12x64) tensor per input image.
+3) An average over the third axis (of size 64) to get a (12x12x1) tensor per input image.
+4) The element-wize `neg_tensor` function to get cell weights of proper sign to apply shortest path algorithms.
+5) A squeeze function to forget the two last dimensions. 
+"""
+function create_satellite_embedding()
+    resnet18 = ResNet(18; pretrain=false, nclasses=1)
+    model_embedding = Chain(
+		resnet18.layers[1][1][1],
+		resnet18.layers[1][1][2],
+		resnet18.layers[1][1][3],
+		resnet18.layers[1][2][1],
+        AdaptiveMaxPool((32,32)),
+        average_tensor,
+        neg_tensor,
+        squeeze_last_dims,
+    )
+    return model_embedding
+end
+
+# ╔═╡ f42d1915-3490-4ae4-bb19-ac1383f453dc
+md"""
+We can build the encoder this way:
+"""
+
+# ╔═╡ 87f1b50a-cb53-4aac-aed6-b3c7c36959b0
+initial_encoder = create_satellite_embedding()
+
+# ╔═╡ 10ce5116-edfa-4b1a-9f9f-7400e5b761ec
+md"""
+### b) Loss and gap utility functions
+"""
+
+# ╔═╡ c69f0a97-84d6-4fd9-bf02-4cfa2132a9c1
+md"""
+In the cell below, we define the `cost` function seen as black-box to evaluate the cost of a given path on the grid, given the true costs `c_true`.
+"""
+
+# ╔═╡ aa35bdee-3d2c-49ff-9483-795e0024de0c
+cost(y; c_true) = dot(y, c_true)
+
+# ╔═╡ 3df21310-c44a-4132-acc0-a0db265a23a9
+md"""
+During training, we want to evaluate the quality of the predicted paths, both on the train and test datasets. We define the shortest path cost ratio between a candidate shortest path $\hat{y}$ and the label shortest path $y$ as: $r(\hat{y},y) = c(\hat{y}) / c(y)$.
+"""
+
+# ╔═╡ 7469895b-06d2-4832-b981-d62b14a80fa8
+md"""
+!!! info
+	The following code defines the `shortest_path_cost_ratio` function. The candidate path $\hat{y}$ is given by the output of `model` applied on image `x`, and `y` is the target shortest path.
+"""
+
+# ╔═╡ 8ce55cdd-6c1a-4fc3-843a-aa6ed1ad4c62
+"""
+	shortest_path_cost_ratio(model, x, y, kwargs)
+Compute the ratio between the cost of the solution given by the `model` cell costs and the cost of the true solution.
+We evaluate both the shortest path with respect to the weights given by `model(x)` and the labelled shortest path `y`
+using the true cell costs stored in `kwargs.wg.weights`. 
+This ratio is by definition greater than one. The closer it is to one, the better is the solution given by the current 
+weights of `model`. We thus track this metric during training.
+"""
+function shortest_path_cost_ratio(model, x, y_true, θ_true; maximizer)
+	θ = model(x)
+	y = maximizer(θ)
+	return dot(θ_true, y) / dot(θ_true, y_true)
+end
+
+# ╔═╡ 15ffc121-b27c-4eec-a829-a05904215426
+"""
+	shortest_path_cost_ratio(model, batch)
+Compute the average cost ratio between computed and true shorest paths over `batch`. 
+"""
+function shortest_path_cost_ratio(model, batch; maximizer)
+	return sum(shortest_path_cost_ratio(model, item[1], item[4], item[3]; maximizer) for item in batch) / length(batch)
+end
+
+# ╔═╡ 0adbb1a4-6e19-40d5-8f9d-865d932cd745
+"""
+	shortest_path_cost_gap(; model, dataset)
+Compute the average cost ratio between computed and true shorest paths over `dataset`. 
+"""
+function shortest_path_cost_gap(; model, dataset, maximizer)
+	return (sum(shortest_path_cost_ratio(model, batch; maximizer) for batch in dataset) / length(dataset) - 1) * 100
+end
+
+# ╔═╡ fd3a4158-5b98-4ddb-a8bd-3603259ee490
+md"""
+### c) Main training function
+"""
+
+# ╔═╡ ea70f8e7-e25b-49cc-8cc2-e25b1aef6b0a
+md"""
+We now consider the generic learning function. We want to minimize a given `flux_loss` over the `train_dataset`, by updating the parameters of `encoder`. We do so using `Flux.jl` package which contains utility functions to backpropagate in a stochastic gradient descent framework. We also track the loss and cost ratio metrics both on the train and test sets. The hyper-parameters are stored in the `options` tuple. 
+"""
+
+# ╔═╡ be2184a8-fed0-4a97-81cb-0b727f9c0444
+md"""
+The following block defines the generic learning function.
+"""
+
+# ╔═╡ c5e1ae85-8168-4cce-9b20-1cf21393a49f
+md"""
+## IV - Pipelines
+"""
+
+# ╔═╡ 3d28d1b4-9f99-44f6-97b5-110f675b5c22
+md"""
+As you know, the solution of a linear program is not differentiable with respect to its cost vector. Therefore, we need additional tricks to be able to update the parameters of the CNN defined by `create_warcraft_embedding`. Two points of view can be adopted: perturb or regularize the maximization problem. They can be unified when introducing probabilistic combinatorial layers, detailed in this [paper](https://arxiv.org/pdf/2207.13513.pdf). They are used in two different frameworks:
+
+- Learning by imitation when we have target shortest path examples in the dataset.
+- Learning by experience when we only have access to the images and to a black-box cost function to evaluate any candidate path.
+
+In this section, we explore different combinatorial layers, as well as the learning by imitation and learning by experience settings.
+"""
+
+# ╔═╡ f532c661-79ad-4c30-8aec-0379a84a3204
+md"""
+### a) Learning by imitation with additive perturbation
+"""
+
+# ╔═╡ d84a9ab0-647a-4bb2-978d-4720b6588d9c
+md"""
+#### 1) Hyperparameters
+"""
+
+# ╔═╡ d4e50757-e67c-4206-a943-c2793d1680ab
+md"""
+We first define the hyper-parameters for the learning process. They include:
+- The regularization size $\varepsilon$.
+- The number of samples drawn for the approximation of the expectation $M$.
+- The number of learning epochs `nb_epochs`.
+- The batch size for the stochastic gradient descent `batch_size`.
+- The starting learning rate for ADAM optimizer `lr_start`.
+"""
+
+# ╔═╡ 84800e5c-9ce2-4a37-aa3c-8f8e7e3d708c
+begin
+	ε = 0.1
+	M = 10
+	nb_epochs = 20
+	batch_size = 8
+	lr_start = 1e-3
+end;
+
+# ╔═╡ 90c5cf85-de79-43db-8cba-39fda06938e6
+begin 
+	"""
+	    convert_image_for_plot(image::Array{Float32,3})::Array{RGB{N0f8},2}
+	Convert `image` to the proper data format to enable plots in Julia.
+	"""
+	function convert_image_for_plot(image::Array{Float32,3})::Array{RGB{N0f8},2}
+	    new_img = Array{RGB{N0f8},2}(undef, size(image)[1], size(image)[2])
+	    for i = 1:size(image)[1]
+	        for j = 1:size(image)[2]
+	            new_img[i,j] = RGB{N0f8}(image[i,j,1], image[i,j,2], image[i,j,3])
+	        end
+	    end
+	    return new_img
+	end
+
+		"""
+		plot_image_weights(;im, weights)
+	Plot the image `im` and the weights `weights` on the same Figure.
+	"""
+	function plot_image_weights(x, θ; θ_title="Weights", θ_true=θ)
+		im = dropdims(x; dims=4)
+		img = convert_image_for_plot(im)
+	    p1 = Plots.plot(
+	        img;
+	        aspect_ratio=:equal,
+	        framestyle=:none,
+	        size=(300, 300),
+			title="Terrain image"
+	    )
+		p2 = Plots.heatmap(
+			θ;
+			yflip=true,
+			aspect_ratio=:equal,
+			framestyle=:none,
+			padding=(0., 0.),
+			size=(300, 300),
+			legend=false,
+			title=θ_title,
+			clim=(minimum(θ_true), maximum(θ_true))
+		)
+	    plot(p1, p2, layout = (1, 2), size = (900, 300))
+	end
+
+		"""
+		plot_image_weights_masks(;im, weights, mask)
+	Plot the image `im`, the weights `weights` and the mask `mask` on the same Figure.
+	"""
+	function plot_image_weights_masks(x, θ, mask; θ_title="Weights", θ_true=θ)
+		im = dropdims(x; dims=4)
+		img = convert_image_for_plot(im)
+		mask_img = convert_image_for_plot(mask)
+	    p1 = Plots.plot(
+	        img;
+	        aspect_ratio=:equal,
+	        framestyle=:none,
+	        size=(300, 300),
+			title="Terrain image"
+	    )
+		p2 = Plots.plot(
+			mask_img;
+			aspect_ratio=:equal,
+			framestyle=:none,
+			size=(300, 300),
+			title="Route mask"
+		)
+		p3 = Plots.heatmap(
+			θ;
+			yflip=true,
+			aspect_ratio=:equal,
+			framestyle=:none,
+			padding=(0., 0.),
+			size=(300, 300),
+			legend=false,
+			title=θ_title,
+			clim=(minimum(θ_true), maximum(θ_true))
+		)
+	    plot(p1, p2, p3, layout = (1, 3), size = (900, 300))
+	end
+	
+	"""
+		plot_image_weights_path(;im, weights, path)
+	Plot the image `im`, the weights `weights`, and the path `path` on the same Figure.
+	"""
+	function plot_image_weights_path(x, y, θ; θ_title="Weights", y_title="Path", θ_true=θ)
+		im = dropdims(x; dims=4)
+		img = convert_image_for_plot(im)
+	    p1 = Plots.plot(
+	        img;
+	        aspect_ratio=:equal,
+	        framestyle=:none,
+	        size=(300, 300),
+			title="Terrain image"
+	    )
+		p2 = Plots.heatmap(
+			θ;
+			yflip=true,
+			aspect_ratio=:equal,
+			framestyle=:none,
+			padding=(0., 0.),
+			size=(300, 300),
+			legend=false,
+			title=θ_title,
+			clim=(minimum(θ), maximum(θ))
+		)
+		p3 = Plots.plot(
+	        Gray.(y .* 0.7);
+	        aspect_ratio=:equal,
+	        framestyle=:none,
+	        size=(300, 300),
+			title=y_title
+	    )
+	    plot(p1, p2, p3, layout = (1, 3), size = (900, 300))
+	end
+
+	"""
+		plot_image_masks_weights_path(;im, mask, weights, path)
+	Plot the image `im`, the weights `weights`, the mask `mask` and the path `path` on the same Figure.
+	"""
+	function plot_image_masks_weights_path(x, mask, θ, y; θ_title="Weights", θ_true=θ)
+		im = dropdims(x; dims=4)
+		img = convert_image_for_plot(im)
+		mask_img = convert_image_for_plot(mask)
+	    p1 = Plots.plot(
+	        img;
+	        aspect_ratio=:equal,
+	        framestyle=:none,
+	        size=(300, 300),
+			title="Terrain image"
+	    )
+		p2 = Plots.plot(
+			mask_img;
+			aspect_ratio=:equal,
+			framestyle=:none,
+			size=(300, 300),
+			title="Route mask"
+		)
+		p3 = Plots.heatmap(
+			θ;
+			yflip=true,
+			aspect_ratio=:equal,
+			framestyle=:none,
+			padding=(0., 0.),
+			size=(300, 300),
+			legend=false,
+			title=θ_title,
+			clim=(minimum(θ_true), maximum(θ_true))
+		)
+		p4 = Plots.plot(
+			Gray.(y .* 0.7);
+			aspect_ratio=:equal,
+			framestyle=:none,
+			size=(300, 300),
+			title="Shortest path"
+		)
+	    plot(p1, p2, p3, p4, layout = (2, 2), size = (900, 600))
+	end
+	
+	"""
+	    plot_loss_and_gap(losses::Matrix{Float64}, gaps::Matrix{Float64},  options::NamedTuple; filepath=nothing)
+	
+	Plot the train and test losses, as well as the train and test gaps computed over epochs.
+	"""
+	function plot_loss_and_gap(losses::Matrix{Float64}, gaps::Matrix{Float64}; filepath=nothing)
+	    p1 = plot(collect(1:nb_epochs), losses, title = "Loss", xlabel = "epochs", ylabel = "loss", label = ["train" "test"])
+	    p2 = plot(collect(0:nb_epochs), gaps, title = "Gap", xlabel = "epochs", ylabel = "ratio", label = ["train" "test"])
+	    pl = plot(p1, p2, layout = (1, 2))
+	    isnothing(filepath) || Plots.savefig(pl, filepath)
+	    return pl
+	end
+end;
+
+# ╔═╡ c4b40ca8-00b0-4ea0-9793-f06adcb44f12
+plot_image_masks_weights_path(dataset[n]...)
+
+# ╔═╡ 62d66917-ef2e-4e64-ae6d-c281b8e81b4f
+plot_image_weights_masks(dataset[n_p][1], dataset[n_p][3], dataset[n_p][2])
+
+# ╔═╡ 34701d56-63d1-4f6d-b3d0-52705f4f8820
+plot_image_weights_path(dataset[n_p][1], ground_truth_path, dataset[n_p][3]; θ_title="Weights", y_title="Path", θ_true=dataset[n_p][3])
+
+# ╔═╡ 6619b9ae-2608-4c8d-9561-bc579d673651
+function train_function!(;
+	encoder, loss, train_data, test_data, lr_start, nb_epoch, batch_size, maximizer
+)
+	# batch stuff
+	batch_loss(batch) = sum(loss(item...) for item in batch)
+	train_dataset = Flux.DataLoader(train_data; batchsize=batch_size)
+	test_dataset = Flux.DataLoader(test_data; batchsize=length(test_data))
+
+	# Store the train loss and gap metric
+	losses = Matrix{Float64}(undef, nb_epochs, 2)
+	cost_gaps = Matrix{Float64}(undef, nb_epochs + 1, 2)
+
+	# Optimizer
+	opt = ADAM(lr_start)
+
+	# model parameters
+	par = Flux.params(encoder)
+
+	cost_gaps[1, 1] = shortest_path_cost_gap(; model=encoder, dataset=train_dataset, maximizer)
+	cost_gaps[1, 2] = shortest_path_cost_gap(; model=encoder, dataset=test_dataset, maximizer)
+
+	# Train loop
+	@progress "Training epoch: " for epoch in 1:nb_epochs
+		train_loss = 0.0
+		for batch in train_dataset
+			loss_value = 0
+			gs = gradient(par) do
+				loss_value = batch_loss(batch)
+			end
+			train_loss += loss_value
+			Flux.update!(opt, par, gs)
+		end
+
+		# compute and store epoch metrics
+		losses[epoch, 1] = train_loss / (nb_samples * train_prop)
+		losses[epoch, 2] = sum([batch_loss(batch) for batch in test_dataset]) / (nb_samples * (1 - train_prop))
+		cost_gaps[epoch + 1, 1] = shortest_path_cost_gap(; model=encoder, dataset=train_dataset, maximizer)
+		cost_gaps[epoch + 1, 2] = shortest_path_cost_gap(; model=encoder, dataset=test_dataset, maximizer)
+	end
+	 return losses, cost_gaps, deepcopy(encoder)
+end
+
+# ╔═╡ 83163af1-cdf7-4987-a159-17a19b70f65f
+tip(md"Feel free to play around with hyperparameters, observe and report their impact on the training performances.")
+
+# ╔═╡ 63280424-98d6-406a-b392-e124dc9fd0cb
+md"""
+#### 2) Specific pipeline
+"""
+
+# ╔═╡ 115805d5-3084-4011-8268-071427dc7eea
+md"""
+!!! info "What is a pipeline ?"
+	This portion of code is the crucial part to define the learning pipeline. It contains: 
+	- an encoder, the machine learning predictor, in our case a CNN.
+	- a maximizer possibly applied to the output of the encoder before computing the loss.
+	- a differentiable loss to evaluate the quality of the output of the pipeline.
+	
+	Its definition depends on the learning setting we consider.
+"""
+
+# ╔═╡ def2037e-0bd8-446d-aec2-714f4254b33a
+md"As already seen in the previous sections, we wrap our shortest path algorithm in a `PerturbedAdditive`"
+
+# ╔═╡ 984c9a6d-68b5-42d6-8b45-73153bc97980
+chosen_maximizer = bellman_maximizer
+
+# ╔═╡ b3387bae-78c6-4aa9-abdc-c49ae72f5658
+perturbed_maximizer = PerturbedAdditive(chosen_maximizer; ε=ε, nb_samples=M)
+
+# ╔═╡ 0604e53f-7eef-452c-9f8a-e96d17800254
+loss = FenchelYoungLoss(perturbed_maximizer)
+
+# ╔═╡ 6ef79e5c-ae76-48f8-8f13-c000bbfdfc04
+encoder = deepcopy(initial_encoder)
+
+# ╔═╡ 91e63e47-f8e4-4a23-a8e3-2617879f8076
+imitation_flux_loss(x, m, θ, y) = loss(encoder(x), y)
+
+# ╔═╡ b7e0fe81-b21d-4cff-ba63-e6db12f04c34
+md"""
+#### 4) Apply the learning function
+"""
+
+# ╔═╡ 4ec896f9-b226-4743-91c6-962fccc46db6
+danger(md"Click the checkbox to activate the training cell $(@bind train CheckBox()) 
+
+It may take some time to run and affect the reactivity of the notebook. Then you can read what follows.")
+
+# ╔═╡ 7a12850f-364d-431f-b072-6038fe3c91e1
+loss_history, gap_history, final_encoder = train ? train_function!(;
+	encoder=encoder,
+	maximizer=chosen_maximizer,
+	loss=imitation_flux_loss,
+	train_data=train_dataset,
+	test_data=test_dataset,
+	lr_start=lr_start,
+	batch_size=batch_size,
+	nb_epoch=nb_epochs
+) : (zeros(nb_epochs, 2), zeros(nb_epochs + 1, 2), encoder);
+
+# ╔═╡ 07b61dbd-7561-4f42-82dd-2b2c9b9b81c2
+md"""
+#### 5) Plot results
+"""
+
+# ╔═╡ de229acf-26c1-4dcc-a2a4-c4babc1b63e6
+plot_loss_and_gap(loss_history, gap_history)
+
+# ╔═╡ bff94ffa-73f5-4436-8655-cc8f359af8a8
+md"""
+!!! info "Visualize the model performance"
+	We now want to see the effect of the learning process on the predicted costs and shortest paths. Use the slider to swipe through datasets.
+"""
+
+# ╔═╡ d740a3d1-6af9-4116-bd9b-3dd6a8899d0f
+TwoColumn(md"Choose dataset you want to evaluate on:", md"""data = $(@bind data Select([train_dataset => "train", test_dataset => "test"]))""")
+
+# ╔═╡ 452ba406-f073-467a-9064-b330fe9ce6cf
+begin
+	test_predictions = []
+	dataset_to_test = data
+	for (x, mask, θ_true, y_true) in dataset_to_test 
+		θ₀ = initial_encoder(x)
+		y₀ = UInt8.(chosen_maximizer(θ₀))
+		θ = final_encoder(x)
+		y = UInt8.(chosen_maximizer(θ))
+		push!(test_predictions, (; x, y_true, θ_true, θ₀, y₀, θ, y))
+	end
+end
+
+# ╔═╡ 1889d002-ec77-445c-bdb1-eb3a09a84b29
+md"""
+``j =`` $(@bind j Slider(1:length(dataset_to_test); default=1, show_value=true))
+"""
+
+# ╔═╡ e2d6629e-0512-43ab-adae-f916811b1fc7
+(; x, y_true, θ_true, θ₀, y₀, θ, y) = test_predictions[j]
+
+# ╔═╡ c5ce2443-745d-43ea-ac8f-4dbbe3169dd3
+plot_image_weights_path(x, y_true, θ_true)
+
+# ╔═╡ 29335ecb-7469-49ed-8d59-d102254f1a48
+md"Predictions of the trained neural network:"
+
+# ╔═╡ 1db9b111-f2eb-4918-acc3-c49fa2a97640
+plot_image_weights_path(
+	x, y, -θ; θ_title="Predicted weights", y_title="Predicted path", θ_true=θ_true
+)
+
+# ╔═╡ ca0241b1-d876-4f91-9530-972f4e29b4e9
+md"Predictions of the initial untrained neural network:"
+
+# ╔═╡ 26218631-7a9e-474a-aebd-aaa3535f657d
+plot_image_weights_path(
+	x, y₀, -θ₀; θ_title="Initial predicted weights", y_title="Initial predicted path", θ_true=θ_true
+)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -3739,7 +4101,7 @@ version = "1.4.1+1"
 # ╟─687fc8b5-77a8-4875-b5e9-f942684ac6b6
 # ╟─69b6a4fe-c8f8-4371-abe1-906bc690d4a2
 # ╟─8fcc69eb-9f6c-4fb1-a70c-80216eed306b
-# ╟─90c5cf85-de79-43db-8cba-39fda06938e6
+# ╠═90c5cf85-de79-43db-8cba-39fda06938e6
 # ╟─03bc22e3-2afa-4139-b8a4-b801dd8d3f4d
 # ╟─3921124d-4f08-4f3c-856b-ad876d31e2c1
 # ╠═948eae34-738d-4c60-98b9-8b69b1eb9b68
@@ -3765,5 +4127,57 @@ version = "1.4.1+1"
 # ╠═34701d56-63d1-4f6d-b3d0-52705f4f8820
 # ╟─87cbc472-6330-4a27-b10f-b8d881b79249
 # ╟─3476d181-ba67-4597-b05c-9caec23fa1e5
+# ╟─b8b79a69-2bbb-4329-a1d0-3429230787c1
+# ╟─37761f25-bf80-47ee-9fca-06fce1047364
+# ╟─97df1403-7858-4715-856d-f330926a9bfd
+# ╟─02d14966-9887-40cb-a04d-09774ff72d27
+# ╟─a9ca100d-8881-4c31-9ab9-e987baf91e2c
+# ╟─721893e8-9252-4fcd-9ef7-59b70bffb916
+# ╟─8666701b-223f-4dfc-a4ff-aec17c7e0ab2
+# ╠═1df5a84a-7ef3-43fc-8ffe-6a8245b31f8e
+# ╟─f42d1915-3490-4ae4-bb19-ac1383f453dc
+# ╟─87f1b50a-cb53-4aac-aed6-b3c7c36959b0
+# ╟─10ce5116-edfa-4b1a-9f9f-7400e5b761ec
+# ╟─c69f0a97-84d6-4fd9-bf02-4cfa2132a9c1
+# ╠═aa35bdee-3d2c-49ff-9483-795e0024de0c
+# ╟─3df21310-c44a-4132-acc0-a0db265a23a9
+# ╟─7469895b-06d2-4832-b981-d62b14a80fa8
+# ╟─8ce55cdd-6c1a-4fc3-843a-aa6ed1ad4c62
+# ╟─15ffc121-b27c-4eec-a829-a05904215426
+# ╟─0adbb1a4-6e19-40d5-8f9d-865d932cd745
+# ╟─fd3a4158-5b98-4ddb-a8bd-3603259ee490
+# ╟─ea70f8e7-e25b-49cc-8cc2-e25b1aef6b0a
+# ╟─be2184a8-fed0-4a97-81cb-0b727f9c0444
+# ╠═6619b9ae-2608-4c8d-9561-bc579d673651
+# ╟─c5e1ae85-8168-4cce-9b20-1cf21393a49f
+# ╟─3d28d1b4-9f99-44f6-97b5-110f675b5c22
+# ╟─f532c661-79ad-4c30-8aec-0379a84a3204
+# ╟─d84a9ab0-647a-4bb2-978d-4720b6588d9c
+# ╟─d4e50757-e67c-4206-a943-c2793d1680ab
+# ╠═84800e5c-9ce2-4a37-aa3c-8f8e7e3d708c
+# ╟─83163af1-cdf7-4987-a159-17a19b70f65f
+# ╟─63280424-98d6-406a-b392-e124dc9fd0cb
+# ╟─115805d5-3084-4011-8268-071427dc7eea
+# ╟─def2037e-0bd8-446d-aec2-714f4254b33a
+# ╠═984c9a6d-68b5-42d6-8b45-73153bc97980
+# ╠═b3387bae-78c6-4aa9-abdc-c49ae72f5658
+# ╠═0604e53f-7eef-452c-9f8a-e96d17800254
+# ╠═6ef79e5c-ae76-48f8-8f13-c000bbfdfc04
+# ╠═91e63e47-f8e4-4a23-a8e3-2617879f8076
+# ╟─b7e0fe81-b21d-4cff-ba63-e6db12f04c34
+# ╟─4ec896f9-b226-4743-91c6-962fccc46db6
+# ╠═7a12850f-364d-431f-b072-6038fe3c91e1
+# ╟─07b61dbd-7561-4f42-82dd-2b2c9b9b81c2
+# ╠═de229acf-26c1-4dcc-a2a4-c4babc1b63e6
+# ╟─bff94ffa-73f5-4436-8655-cc8f359af8a8
+# ╟─d740a3d1-6af9-4116-bd9b-3dd6a8899d0f
+# ╠═452ba406-f073-467a-9064-b330fe9ce6cf
+# ╠═e2d6629e-0512-43ab-adae-f916811b1fc7
+# ╠═c5ce2443-745d-43ea-ac8f-4dbbe3169dd3
+# ╟─1889d002-ec77-445c-bdb1-eb3a09a84b29
+# ╟─29335ecb-7469-49ed-8d59-d102254f1a48
+# ╠═1db9b111-f2eb-4918-acc3-c49fa2a97640
+# ╟─ca0241b1-d876-4f91-9530-972f4e29b4e9
+# ╠═26218631-7a9e-474a-aebd-aaa3535f657d
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
