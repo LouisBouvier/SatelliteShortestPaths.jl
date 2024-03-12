@@ -936,7 +936,7 @@ weights of `model`. We thus track this metric during training.
 """
 function shortest_path_cost_ratio(model, x, y_true, θ_true; maximizer)
 	θ = model(x)
-	y = maximizer(-θ)
+	y = maximizer(θ)
 	return dot(θ_true, y) / dot(θ_true, y_true)
 end
 
@@ -1323,9 +1323,9 @@ begin
 	dataset_to_test = data
 	for (x, mask, θ_true, y_true) in dataset_to_test 
 		θ₀ = initial_encoder(x)
-		y₀ = chosen_maximizer(-θ₀)
+		y₀ = chosen_maximizer(θ₀)
 		θ = final_encoder(x)
-		y = chosen_maximizer(-θ)
+		y = chosen_maximizer(θ)
 		push!(test_predictions, (; x, y_true, θ_true, θ₀, y₀, θ, y))
 	end
 end
@@ -1349,7 +1349,7 @@ md"Predictions of the trained neural network:"
 
 # ╔═╡ 1db9b111-f2eb-4918-acc3-c49fa2a97640
 plot_image_weights_path(
-	x, y, θ; θ_title="Predicted weights", y_title="Predicted path", θ_true=θ_true
+	x, y, -θ; θ_title="Predicted weights", y_title="Predicted path", θ_true=θ_true
 )
 
 # ╔═╡ 2e3ffb07-454e-4a21-994a-4ecb773511a3
@@ -1360,7 +1360,7 @@ md"Predictions of the initial untrained neural network:"
 
 # ╔═╡ 26218631-7a9e-474a-aebd-aaa3535f657d
 plot_image_weights_path(
-	x, y₀, θ₀; θ_title="Initial predicted weights", y_title="Initial predicted path", θ_true=θ_true
+	x, y₀, -θ₀; θ_title="Initial predicted weights", y_title="Initial predicted path", θ_true=θ_true
 )
 
 # ╔═╡ c07c0c3a-f256-4481-a9e0-ef37c9877b47
@@ -4151,7 +4151,7 @@ version = "1.4.1+1"
 # ╠═aa35bdee-3d2c-49ff-9483-795e0024de0c
 # ╟─3df21310-c44a-4132-acc0-a0db265a23a9
 # ╟─7469895b-06d2-4832-b981-d62b14a80fa8
-# ╟─8ce55cdd-6c1a-4fc3-843a-aa6ed1ad4c62
+# ╠═8ce55cdd-6c1a-4fc3-843a-aa6ed1ad4c62
 # ╟─15ffc121-b27c-4eec-a829-a05904215426
 # ╟─0adbb1a4-6e19-40d5-8f9d-865d932cd745
 # ╟─fd3a4158-5b98-4ddb-a8bd-3603259ee490
