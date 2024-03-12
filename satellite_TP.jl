@@ -936,7 +936,7 @@ weights of `model`. We thus track this metric during training.
 """
 function shortest_path_cost_ratio(model, x, y_true, θ_true; maximizer)
 	θ = model(x)
-	y = maximizer(θ)
+	y = maximizer(-θ)
 	return dot(θ_true, y) / dot(θ_true, y_true)
 end
 
@@ -1012,7 +1012,7 @@ We first define the hyper-parameters for the learning process. They include:
 begin
 	ε = 0.1
 	M = 10
-	nb_epochs = 20
+	nb_epochs = 50
 	batch_size = 8
 	lr_start = 1e-3
 end;
@@ -1323,9 +1323,9 @@ begin
 	dataset_to_test = data
 	for (x, mask, θ_true, y_true) in dataset_to_test 
 		θ₀ = initial_encoder(x)
-		y₀ = UInt8.(chosen_maximizer(θ₀))
+		y₀ = chosen_maximizer(-θ₀)
 		θ = final_encoder(x)
-		y = UInt8.(chosen_maximizer(θ))
+		y = chosen_maximizer(-θ)
 		push!(test_predictions, (; x, y_true, θ_true, θ₀, y₀, θ, y))
 	end
 end
@@ -1341,21 +1341,30 @@ md"""
 # ╔═╡ c5ce2443-745d-43ea-ac8f-4dbbe3169dd3
 plot_image_weights_path(x, y_true, θ_true)
 
+# ╔═╡ 2934b1d3-bf51-46f9-b408-6c2ff78c2625
+cost(y_true; c_true = θ_true)
+
 # ╔═╡ 29335ecb-7469-49ed-8d59-d102254f1a48
 md"Predictions of the trained neural network:"
 
 # ╔═╡ 1db9b111-f2eb-4918-acc3-c49fa2a97640
 plot_image_weights_path(
-	x, y, -θ; θ_title="Predicted weights", y_title="Predicted path", θ_true=θ_true
+	x, y, θ; θ_title="Predicted weights", y_title="Predicted path", θ_true=θ_true
 )
+
+# ╔═╡ 2e3ffb07-454e-4a21-994a-4ecb773511a3
+cost(y; c_true = θ_true)
 
 # ╔═╡ ca0241b1-d876-4f91-9530-972f4e29b4e9
 md"Predictions of the initial untrained neural network:"
 
 # ╔═╡ 26218631-7a9e-474a-aebd-aaa3535f657d
 plot_image_weights_path(
-	x, y₀, -θ₀; θ_title="Initial predicted weights", y_title="Initial predicted path", θ_true=θ_true
+	x, y₀, θ₀; θ_title="Initial predicted weights", y_title="Initial predicted path", θ_true=θ_true
 )
+
+# ╔═╡ c07c0c3a-f256-4481-a9e0-ef37c9877b47
+cost(y₀; c_true = θ_true)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -4101,7 +4110,7 @@ version = "1.4.1+1"
 # ╟─687fc8b5-77a8-4875-b5e9-f942684ac6b6
 # ╟─69b6a4fe-c8f8-4371-abe1-906bc690d4a2
 # ╟─8fcc69eb-9f6c-4fb1-a70c-80216eed306b
-# ╠═90c5cf85-de79-43db-8cba-39fda06938e6
+# ╟─90c5cf85-de79-43db-8cba-39fda06938e6
 # ╟─03bc22e3-2afa-4139-b8a4-b801dd8d3f4d
 # ╟─3921124d-4f08-4f3c-856b-ad876d31e2c1
 # ╠═948eae34-738d-4c60-98b9-8b69b1eb9b68
@@ -4134,7 +4143,7 @@ version = "1.4.1+1"
 # ╟─a9ca100d-8881-4c31-9ab9-e987baf91e2c
 # ╟─721893e8-9252-4fcd-9ef7-59b70bffb916
 # ╟─8666701b-223f-4dfc-a4ff-aec17c7e0ab2
-# ╠═1df5a84a-7ef3-43fc-8ffe-6a8245b31f8e
+# ╟─1df5a84a-7ef3-43fc-8ffe-6a8245b31f8e
 # ╟─f42d1915-3490-4ae4-bb19-ac1383f453dc
 # ╟─87f1b50a-cb53-4aac-aed6-b3c7c36959b0
 # ╟─10ce5116-edfa-4b1a-9f9f-7400e5b761ec
@@ -4174,10 +4183,13 @@ version = "1.4.1+1"
 # ╠═452ba406-f073-467a-9064-b330fe9ce6cf
 # ╠═e2d6629e-0512-43ab-adae-f916811b1fc7
 # ╠═c5ce2443-745d-43ea-ac8f-4dbbe3169dd3
+# ╠═2934b1d3-bf51-46f9-b408-6c2ff78c2625
 # ╟─1889d002-ec77-445c-bdb1-eb3a09a84b29
 # ╟─29335ecb-7469-49ed-8d59-d102254f1a48
 # ╠═1db9b111-f2eb-4918-acc3-c49fa2a97640
+# ╠═2e3ffb07-454e-4a21-994a-4ecb773511a3
 # ╟─ca0241b1-d876-4f91-9530-972f4e29b4e9
 # ╠═26218631-7a9e-474a-aebd-aaa3535f657d
+# ╠═c07c0c3a-f256-4481-a9e0-ef37c9877b47
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
