@@ -21,6 +21,7 @@ begin
 	using DataFrames
 	using DifferentiableFrankWolfe
 	using Flux
+	using FileIO
 	using FrankWolfe
 	using Graphs 
 	using GridGraphs
@@ -547,7 +548,452 @@ The first dataset function `read_dataset` is used to read the images, cell costs
 """
 
 # ╔═╡ bec571ff-86c7-4fd7-afcd-c27595563824
+"""
+	read_dataset(decompressed_path::String, dtype::String="train", nb_samples::Int)
 
+Read the dataset of type `dtype` at the `decompressed_path` location.
+The dataset is made of images of satellite terrains, cell cost labels and shortest path labels.
+They are returned separately, with proper axis permutation and image scaling to be consistent with 
+`Flux` embeddings.
+"""
+function read_dataset(decompressed_path::String, dtype::String="train",nb_samples::Int=100)
+	# metadata
+	metadata_df = DataFrame(CSV.File(joinpath(decompressed_path, "metadata.csv")))
+	names_dtype = metadata_df[metadata_df[!, "split"] .== dtype, "image_id"][1:nb_samples]
+	# get the size of images and weights to create arrays
+	size_image = size(channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(names_dtype[1])_sat.jpg"))))
+	size_weight = size(npzread(joinpath(decompressed_path, dtype, "$(names_dtype[1])_sat.npy")))
+	size_mask = size(channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(names_dtype[1])_mask.png"))))
+	size_path = size(npzread(joinpath(decompressed_path, dtype, "$(names_dtype[1])_shortest_path.npy")))
+	# create arrays to fill
+	terrain_images = Array{Float32}(undef, length(names_dtype), size_image[1], size_image[2], size_image[3])
+	terrain_weights = Array{Float32}(undef, length(names_dtype), size_weight[1], size_weight[2])
+	terrain_masks = Array{Float32}(undef, length(names_dtype), size_mask[1], size_mask[2], size_mask[3])
+	terrain_paths = Array{Float32}(undef, length(names_dtype), size_path[1], size_path[2])
+	@progress for (i, name) in enumerate(names_dtype)
+		# Open files
+		terrain_images[i, :, :, :] = channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(name)_sat.jpg")))
+		terrain_weights[i, :, :] = npzread(joinpath(decompressed_path, dtype, "$(name)_sat.npy"))
+		terrain_masks[i, :, :, :] = channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(name)_mask.png")))
+		terrain_paths[i, :, :] = npzread(joinpath(decompressed_path, dtype, "$(name)_shortest_path.npy"))	
+	end
+	# Reshape for Flux
+	terrain_images = permutedims(terrain_images, (3, 4, 2, 1))
+	terrain_masks = permutedims(terrain_masks, (3, 4, 2, 1))
+	terrain_weights = permutedims(terrain_weights, (2, 3, 1))
+	terrain_paths = permutedims(terrain_paths, (2, 3, 1))
+	println("Train images shape: ", size(terrain_images))
+	println("Train masks shape: ", size(terrain_masks))
+	println("Weights shape:", size(terrain_weights))
+	println("Train labels shape: ", size(terrain_paths))
+	# return terrain_images, terrain_labels, terrain_weights
+	return terrain_images, terrain_masks, terrain_weights, terrain_paths
+end
+
+# ╔═╡ a36e80da-6780-44ca-9e00-a42af83e3657
+md"""
+Once the files are read, we want to give an adequate format to the dataset, so that we can easily load samples to train and test models. The function `create_dataset` therefore calls the previous `read_dataset` function: 
+"""
+
+# ╔═╡ 5ff9ad90-c472-4eb9-9b31-4c5dffe44145
+"""
+	create_dataset(decompressed_path::String, nb_samples::Int=10000)
+
+Create the dataset corresponding to the data located at `decompressed_path`, possibly sub-sampling `nb_samples` points.
+The dataset is made of images of satellite terrains, cell cost labels and shortest path labels.
+It is a `Vector` of tuples, each `Tuple` being a dataset point.
+"""
+function create_dataset(decompressed_path::String, nb_samples::Int=10000)
+	terrain_images, terrain_masks, terrain_weights, terrain_paths = read_dataset(
+		decompressed_path, "train", nb_samples
+	)
+	X = [
+		reshape(terrain_images[:, :, :, i], (size(terrain_images[:, :, :, i])..., 1)) for
+		i in 1:nb_samples
+	]
+	Y = [terrain_paths[:, :, i] for i in 1:nb_samples]
+	WG = [terrain_weights[:, :, i] for i in 1:nb_samples]
+	M = [terrain_masks[:, :, :, i] for i in 1:nb_samples]
+	return collect(zip(X, M, WG, Y))
+end
+
+# ╔═╡ 80defee2-8e56-4375-84dc-99bee48883da
+md"""
+Last, as usual in machine learning implementations, we split a dataset into train and test sets. The function `train_test_split` does the job:
+
+"""
+
+# ╔═╡ 687fc8b5-77a8-4875-b5e9-f942684ac6b6
+"""
+	train_test_split(X::AbstractVector, train_percentage::Real=0.5)
+
+Split a dataset contained in `X` into train and test datasets.
+The proportion of the initial dataset kept in the train set is `train_percentage`.
+"""
+function train_test_split(X::AbstractVector, train_percentage::Real=0.5)
+	N = length(X)
+	N_train = floor(Int, N * train_percentage)
+	N_test = N - N_train
+	train_ind, test_ind = 1:N_train, (N_train + 1):(N_train + N_test)
+	X_train, X_test = X[train_ind], X[test_ind]
+	return X_train, X_test
+end
+
+# ╔═╡ 69b6a4fe-c8f8-4371-abe1-906bc690d4a2
+md"""
+### c) Plot functions
+"""
+
+# ╔═╡ 8fcc69eb-9f6c-4fb1-a70c-80216eed306b
+md"""
+In the following cell, we define utility plot functions to have a glimpse at images, cell costs and paths. Their implementation is not at the core of this tutorial, they are thus hidden.
+"""
+
+# ╔═╡ 90c5cf85-de79-43db-8cba-39fda06938e6
+begin 
+	"""
+	    convert_image_for_plot(image::Array{Float32,3})::Array{RGB{N0f8},2}
+	Convert `image` to the proper data format to enable plots in Julia.
+	"""
+	function convert_image_for_plot(image::Array{Float32,3})::Array{RGB{N0f8},2}
+	    new_img = Array{RGB{N0f8},2}(undef, size(image)[1], size(image)[2])
+	    for i = 1:size(image)[1]
+	        for j = 1:size(image)[2]
+	            new_img[i,j] = RGB{N0f8}(image[i,j,1], image[i,j,2], image[i,j,3])
+	        end
+	    end
+	    return new_img
+	end
+
+		"""
+		plot_image_weights(;im, weights)
+	Plot the image `im` and the weights `weights` on the same Figure.
+	"""
+	function plot_image_weights(x, θ; θ_title="Weights", θ_true=θ)
+		im = dropdims(x; dims=4)
+		img = convert_image_for_plot(im)
+	    p1 = Plots.plot(
+	        img;
+	        aspect_ratio=:equal,
+	        framestyle=:none,
+	        size=(300, 300),
+			title="Terrain image"
+	    )
+		p2 = Plots.heatmap(
+			θ;
+			yflip=true,
+			aspect_ratio=:equal,
+			framestyle=:none,
+			padding=(0., 0.),
+			size=(300, 300),
+			legend=false,
+			title=θ_title,
+			clim=(minimum(θ_true), maximum(θ_true))
+		)
+	    plot(p1, p2, layout = (1, 2), size = (900, 300))
+	end
+
+		"""
+		plot_image_weights_masks(;im, weights, mask)
+	Plot the image `im`, the weights `weights` and the mask `mask` on the same Figure.
+	"""
+	function plot_image_weights_masks(x, θ, mask; θ_title="Weights", θ_true=θ)
+		im = dropdims(x; dims=4)
+		img = convert_image_for_plot(im)
+		mask_img = convert_image_for_plot(mask)
+	    p1 = Plots.plot(
+	        img;
+	        aspect_ratio=:equal,
+	        framestyle=:none,
+	        size=(300, 300),
+			title="Terrain image"
+	    )
+		p2 = Plots.plot(
+			mask_img;
+			aspect_ratio=:equal,
+			framestyle=:none,
+			size=(300, 300),
+			title="Route mask"
+		)
+		p3 = Plots.heatmap(
+			θ;
+			yflip=true,
+			aspect_ratio=:equal,
+			framestyle=:none,
+			padding=(0., 0.),
+			size=(300, 300),
+			legend=false,
+			title=θ_title,
+			clim=(minimum(θ_true), maximum(θ_true))
+		)
+	    plot(p1, p2, p3, layout = (1, 3), size = (900, 300))
+	end
+	
+	"""
+		plot_image_weights_path(;im, weights, path)
+	Plot the image `im`, the weights `weights`, and the path `path` on the same Figure.
+	"""
+	function plot_image_weights_path(x, y, θ; θ_title="Weights", y_title="Path", θ_true=θ)
+		im = dropdims(x; dims=4)
+		img = convert_image_for_plot(im)
+	    p1 = Plots.plot(
+	        img;
+	        aspect_ratio=:equal,
+	        framestyle=:none,
+	        size=(300, 300),
+			title="Terrain image"
+	    )
+		p2 = Plots.heatmap(
+			θ;
+			yflip=true,
+			aspect_ratio=:equal,
+			framestyle=:none,
+			padding=(0., 0.),
+			size=(300, 300),
+			legend=false,
+			title=θ_title,
+			clim=(minimum(θ_true), maximum(θ_true))
+		)
+		p3 = Plots.plot(
+	        Gray.(y .* 0.7);
+	        aspect_ratio=:equal,
+	        framestyle=:none,
+	        size=(300, 300),
+			title=y_title
+	    )
+	    plot(p1, p2, p3, layout = (1, 3), size = (900, 300))
+	end
+
+	"""
+		plot_image_masks_weights_path(;im, mask, weights, path)
+	Plot the image `im`, the weights `weights`, the mask `mask` and the path `path` on the same Figure.
+	"""
+	function plot_image_masks_weights_path(x, mask, θ, y; θ_title="Weights", θ_true=θ)
+		im = dropdims(x; dims=4)
+		img = convert_image_for_plot(im)
+		mask_img = convert_image_for_plot(mask)
+	    p1 = Plots.plot(
+	        img;
+	        aspect_ratio=:equal,
+	        framestyle=:none,
+	        size=(300, 300),
+			title="Terrain image"
+	    )
+		p2 = Plots.plot(
+			mask_img;
+			aspect_ratio=:equal,
+			framestyle=:none,
+			size=(300, 300),
+			title="Route mask"
+		)
+		p3 = Plots.heatmap(
+			θ;
+			yflip=true,
+			aspect_ratio=:equal,
+			framestyle=:none,
+			padding=(0., 0.),
+			size=(300, 300),
+			legend=false,
+			title=θ_title,
+			clim=(minimum(θ_true), maximum(θ_true))
+		)
+		p4 = Plots.plot(
+			Gray.(y .* 0.7);
+			aspect_ratio=:equal,
+			framestyle=:none,
+			size=(300, 300),
+			title="Shortest path"
+		)
+	    plot(p1, p2, p3, p4, layout = (2, 2), size = (900, 600))
+	end
+	
+	"""
+	    plot_loss_and_gap(losses::Matrix{Float64}, gaps::Matrix{Float64},  options::NamedTuple; filepath=nothing)
+	
+	Plot the train and test losses, as well as the train and test gaps computed over epochs.
+	"""
+	function plot_loss_and_gap(losses::Matrix{Float64}, gaps::Matrix{Float64}; filepath=nothing)
+	    p1 = plot(collect(1:nb_epochs), losses, title = "Loss", xlabel = "epochs", ylabel = "loss", label = ["train" "test"])
+	    p2 = plot(collect(0:nb_epochs), gaps, title = "Gap", xlabel = "epochs", ylabel = "ratio", label = ["train" "test"])
+	    pl = plot(p1, p2, layout = (1, 2))
+	    isnothing(filepath) || Plots.savefig(pl, filepath)
+	    return pl
+	end
+end;
+
+# ╔═╡ 03bc22e3-2afa-4139-b8a4-b801dd8d3f4d
+md"""
+### d) Import and explore the dataset
+"""
+
+# ╔═╡ 3921124d-4f08-4f3c-856b-ad876d31e2c1
+md"""
+Once we have both defined the functions to read and create a dataset, and to visualize it, we want to have a look at images and paths. Before that, we set the size of the dataset, as well as the train proportion: 
+"""
+
+# ╔═╡ 948eae34-738d-4c60-98b9-8b69b1eb9b68
+nb_samples, train_prop = 100, 0.8;
+
+# ╔═╡ 52292d94-5245-42b4-9c11-1c53dfc5d5fb
+info(md"We focus only on $nb_samples dataset points, and use a $(trunc(Int, train_prop*100))% / $(trunc(Int, 100 - train_prop*100))% train/test split.")
+
+# ╔═╡ 614a469e-0530-4983-82a9-e521097d57a9
+begin
+	dataset = create_dataset(decompressed_path, nb_samples)
+	train_dataset, test_dataset = train_test_split(dataset, train_prop);
+end;
+
+# ╔═╡ 41a134b8-0c8a-4d79-931d-5df7ea524f73
+md"""
+We can have a glimpse at the dataset, use the slider to visualize each tuple (image, weights, label path).
+"""
+
+# ╔═╡ 42151898-a5a9-4677-aa0e-675e986bb41b
+md"""
+``n =`` $(@bind n Slider(1:length(dataset); default=1, show_value=true))
+"""
+
+# ╔═╡ c4b40ca8-00b0-4ea0-9793-f06adcb44f12
+plot_image_masks_weights_path(dataset[n]...)
+
+# ╔═╡ ebee2d90-d2a8-44c1-ae0b-2823c007bf1d
+md"""
+## II - Combinatorial functions
+"""
+
+# ╔═╡ 63a63ca9-841e-40d7-b314-d5582772b634
+md"""
+We focus on additional optimization functions to define the combinatorial layer of our pipelines.
+"""
+
+# ╔═╡ 0fbd9c29-c5b6-407d-931d-945d1b915cd2
+md"""
+### a) Recap on the shortest path problem
+"""
+
+# ╔═╡ f960b309-0250-4692-96e0-a73f79f84c71
+md"""
+Let $D = (V, A)$ be a digraph, $(c_a)_{a \in A}$ the cost associated to the arcs of the digraph, and $(o, d) \in V^2$ the origin and destination nodes. The problem we consider is the following:
+
+**Shortest path problem:** Find an elementary path $P$ from node $o$ to node $d$ in the digraph $D$ with minimum cost $c(P) = \sum_{a \in P} c_a$.
+"""
+
+# ╔═╡ a88dfb2e-6aba-4ceb-b20a-829ebd3243bd
+md"""
+###  b) From shortest path to generic maximizer
+"""
+
+# ╔═╡ a16674b9-e4bf-4e12-a9c5-f67a61f24d7b
+md"""
+Now that we have defined and implemented an algorithm to deal with the shortest path problem, we wrap it in a maximizer function to match the generic framework of structured prediction.
+
+The maximizer needs to take predicted weights `θ` as their only input, and can take some keyword arguments if needed (some instance information for example).
+"""
+
+# ╔═╡ 38f354ec-0df3-4e19-9afb-5342c89b7275
+function dijkstra_maximizer(θ::AbstractMatrix; kwargs...)
+	g = GridGraph(-θ; directions=QUEEN_DIRECTIONS)
+	path = grid_dijkstra(g, 1, nv(g))
+	y = path_to_matrix(g, path)
+	return y
+end
+
+# ╔═╡ b6e0906e-6b76-44b8-a736-e7a872f8c2d7
+"""
+    grid_bellman_ford_satellite(g, s, d, length_max)
+
+Apply the Bellman-Ford algorithm on an `GridGraph` `g`, and return a `ShortestPathTree` with source `s` and destination `d`,
+among the paths having length smaller than `length_max`.
+"""
+function grid_bellman_ford_satellite(g::GridGraph{T,R,W,A}, s::Integer, d::Integer, length_max::Int = nv(g)) where {T,R,W,A}
+    # Init storage
+    parents = zeros(Int, nv(g), length_max + 1)
+    dists = fill(Inf, nv(g), length_max + 1)
+    # Add source
+    dists[s, 1] = zero(T)
+    # Main loop
+    for k in 1:length_max
+        for v in vertices(g)
+            for u in inneighbors(g, v)
+                d_u = dists[u, k]
+                if !isinf(d_u)
+                    d_v = dists[v, k + 1]
+                    d_v_through_u = d_u + GridGraphs.vertex_weight(g, v)
+                    if isinf(d_v) || (d_v_through_u < d_v)
+                        dists[v, k + 1] = d_v_through_u
+                        parents[v, k + 1] = u
+                    end
+                end
+            end
+        end
+    end
+    # Get length of the shortest path
+    k_short = argmin(dists[d,:])
+    if isinf(dists[d, k_short])
+        println("No shortest path with less than $length_max arcs")
+        return Int[]
+    end
+    # Deduce the path
+    v = d
+    path = [v]
+    k = k_short
+    while v != s
+        v = parents[v, k]
+        if v == 0
+            return Int[]
+        else
+            pushfirst!(path, v)
+            k = k - 1
+        end
+    end
+    return path
+end
+
+# ╔═╡ 3e54bce5-faf9-4954-980f-5d70737a3494
+function bellman_maximizer(θ::AbstractMatrix; kwargs...)
+	g = GridGraph(-θ; directions=QUEEN_DIRECTIONS)
+	path = grid_bellman_ford_satellite(g, 1, nv(g))
+	y = path_to_matrix(g, path)
+	return y
+end
+
+# ╔═╡ 22a00cb0-5aca-492b-beec-407ac7ef13d4
+danger(md"`InferOpt.jl` wrappers only take maximization algorithms as input. Don't forget to change some signs if your solving a minimization problem instead.")
+
+# ╔═╡ 596f8aee-34f4-4304-abbe-7100383ce0d1
+md"""
+!!! info "The maximizer function will depend on the pipeline"
+	Note that we use the function `grid_dijkstra` already implemented in the `GridGraphs.jl` package when we deal with non-negative cell costs. In the following, we will use either Dijkstra or Ford-Bellman algorithm depending on the learning pipeline. You will have to modify the maximizer function to use depending on the experience you do.
+"""
+
+# ╔═╡ 8581d294-4d19-40dc-a10a-79e8922ecedb
+md"""
+``n_p =`` $(@bind n_p Slider(1:length(dataset); default=1, show_value=true))
+"""
+
+# ╔═╡ 62d66917-ef2e-4e64-ae6d-c281b8e81b4f
+plot_image_weights_masks(dataset[n_p]...)
+
+# ╔═╡ 67d8f55d-bdbe-4407-bf9b-b34805edcb76
+ground_truth_path = bellman_maximizer(-dataset[n_p][2])
+
+# ╔═╡ 34701d56-63d1-4f6d-b3d0-52705f4f8820
+plot_image_weights_path(dataset[n_p][1], ground_truth_path, dataset[n_p][2]; θ_title="Weights", y_title="Path", θ_true=dataset[n_p][2])
+
+# ╔═╡ 87cbc472-6330-4a27-b10f-b8d881b79249
+md"""
+The following cell is used to create and save the shortest paths based on ground truth weights
+"""
+
+# ╔═╡ 3476d181-ba67-4597-b05c-9caec23fa1e5
+# begin
+# 	metadata_df = DataFrame(CSV.File(joinpath(decompressed_path, "metadata.csv")))
+# 	names_dtype = metadata_df[metadata_df[!, "split"] .== "train", "image_id"][1:nb_samples]
+# 	@progress for (i, (x, w, m)) in enumerate(dataset)
+# 		ground_truth_path = bellman_maximizer(-w)
+# 		npzwrite(joinpath(decompressed_path, "train", "$(names_dtype[i])_shortest_path.npy"), ground_truth_path)
+# 	end
+# end
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -556,6 +1002,7 @@ CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DifferentiableFrankWolfe = "b383313e-5450-4164-a800-befbd27b574d"
+FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
 Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
 FrankWolfe = "f55ce6ea-fdc5-4628-88c5-0087fe54bd30"
 Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
@@ -580,6 +1027,7 @@ CSV = "~0.10.13"
 Colors = "~0.12.10"
 DataFrames = "~1.6.1"
 DifferentiableFrankWolfe = "~0.2.1"
+FileIO = "~1.16.2"
 Flux = "~0.14.13"
 FrankWolfe = "~0.3.3"
 Graphs = "~1.9.0"
@@ -603,7 +1051,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.1"
 manifest_format = "2.0"
-project_hash = "fb73f67b4616abd0e86094cb2ec6ac382df75762"
+project_hash = "8ae1621dcae4c52fbc4e1fbecf7743197f1b5e65"
 
 [[deps.AMD]]
 deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse_jll"]
@@ -3284,6 +3732,38 @@ version = "1.4.1+1"
 # ╠═5a63cad5-f874-4390-b78c-498ce2180c3f
 # ╟─38cd5fb5-3f07-4a4e-bea4-57cdae02d798
 # ╟─41bdc919-ddcc-40f4-bd16-3f5a26485529
-# ╠═bec571ff-86c7-4fd7-afcd-c27595563824
+# ╟─bec571ff-86c7-4fd7-afcd-c27595563824
+# ╟─a36e80da-6780-44ca-9e00-a42af83e3657
+# ╟─5ff9ad90-c472-4eb9-9b31-4c5dffe44145
+# ╟─80defee2-8e56-4375-84dc-99bee48883da
+# ╟─687fc8b5-77a8-4875-b5e9-f942684ac6b6
+# ╟─69b6a4fe-c8f8-4371-abe1-906bc690d4a2
+# ╟─8fcc69eb-9f6c-4fb1-a70c-80216eed306b
+# ╟─90c5cf85-de79-43db-8cba-39fda06938e6
+# ╟─03bc22e3-2afa-4139-b8a4-b801dd8d3f4d
+# ╟─3921124d-4f08-4f3c-856b-ad876d31e2c1
+# ╠═948eae34-738d-4c60-98b9-8b69b1eb9b68
+# ╟─52292d94-5245-42b4-9c11-1c53dfc5d5fb
+# ╠═614a469e-0530-4983-82a9-e521097d57a9
+# ╟─41a134b8-0c8a-4d79-931d-5df7ea524f73
+# ╟─42151898-a5a9-4677-aa0e-675e986bb41b
+# ╠═c4b40ca8-00b0-4ea0-9793-f06adcb44f12
+# ╟─ebee2d90-d2a8-44c1-ae0b-2823c007bf1d
+# ╟─63a63ca9-841e-40d7-b314-d5582772b634
+# ╟─0fbd9c29-c5b6-407d-931d-945d1b915cd2
+# ╟─f960b309-0250-4692-96e0-a73f79f84c71
+# ╟─a88dfb2e-6aba-4ceb-b20a-829ebd3243bd
+# ╟─a16674b9-e4bf-4e12-a9c5-f67a61f24d7b
+# ╠═38f354ec-0df3-4e19-9afb-5342c89b7275
+# ╟─b6e0906e-6b76-44b8-a736-e7a872f8c2d7
+# ╠═3e54bce5-faf9-4954-980f-5d70737a3494
+# ╟─22a00cb0-5aca-492b-beec-407ac7ef13d4
+# ╟─596f8aee-34f4-4304-abbe-7100383ce0d1
+# ╟─8581d294-4d19-40dc-a10a-79e8922ecedb
+# ╠═62d66917-ef2e-4e64-ae6d-c281b8e81b4f
+# ╠═67d8f55d-bdbe-4407-bf9b-b34805edcb76
+# ╠═34701d56-63d1-4f6d-b3d0-52705f4f8820
+# ╟─87cbc472-6330-4a27-b10f-b8d881b79249
+# ╟─3476d181-ba67-4597-b05c-9caec23fa1e5
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
