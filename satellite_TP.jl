@@ -972,13 +972,13 @@ md"""
 """
 
 # ╔═╡ 62d66917-ef2e-4e64-ae6d-c281b8e81b4f
-plot_image_weights_masks(dataset[n_p]...)
+plot_image_weights_masks(dataset[n_p][1], dataset[n_p][3], dataset[n_p][2])
 
 # ╔═╡ 67d8f55d-bdbe-4407-bf9b-b34805edcb76
-ground_truth_path = bellman_maximizer(-dataset[n_p][2])
+ground_truth_path = bellman_maximizer(-dataset[n_p][3])
 
 # ╔═╡ 34701d56-63d1-4f6d-b3d0-52705f4f8820
-plot_image_weights_path(dataset[n_p][1], ground_truth_path, dataset[n_p][2]; θ_title="Weights", y_title="Path", θ_true=dataset[n_p][2])
+plot_image_weights_path(dataset[n_p][1], ground_truth_path, dataset[n_p][3]; θ_title="Weights", y_title="Path", θ_true=dataset[n_p][3])
 
 # ╔═╡ 87cbc472-6330-4a27-b10f-b8d881b79249
 md"""
