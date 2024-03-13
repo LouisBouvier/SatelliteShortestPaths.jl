@@ -1,0 +1,1 @@
+PATH_DATA = "../EuroSAT_RGB/EuroSAT_RGB"
