@@ -1331,12 +1331,14 @@ TwoColumn(md"Choose dataset you want to evaluate on:", md"""data = $(@bind data 
 # ╔═╡ 452ba406-f073-467a-9064-b330fe9ce6cf
 begin
 	test_predictions = []
-	dataset_to_test = data |> gpu
+	dataset_to_test = data
 	for (x, mask, θ_true, y_true) in dataset_to_test 
-		θ₀ = initial_encoder(x)
-		y₀ = chosen_maximizer(cpu(θ₀))
-		θ = final_encoder(x)
-		y = chosen_maximizer(cpu(θ))
+		initial_encoder_cpu = initial_encoder |> cpu
+		final_encoder_cpu = final_encoder |> cpu
+		θ₀ = initial_encoder_cpu(x)
+		y₀ = chosen_maximizer(θ₀)
+		θ = final_encoder_cpu(x)
+		y = chosen_maximizer(θ)
 		push!(test_predictions, (; x, y_true, θ_true, θ₀, y₀, θ, y))
 	end
 end
@@ -1347,7 +1349,7 @@ md"""
 """
 
 # ╔═╡ e2d6629e-0512-43ab-adae-f916811b1fc7
-(; x, y_true, θ_true, θ₀, y₀, θ, y) = test_predictions[j] |> cpu
+(; x, y_true, θ_true, θ₀, y₀, θ, y) = test_predictions[j]
 
 # ╔═╡ c5ce2443-745d-43ea-ac8f-4dbbe3169dd3
 plot_image_weights_path(x, y_true, θ_true)
