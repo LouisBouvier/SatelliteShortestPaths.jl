@@ -910,7 +910,7 @@ We can build the encoder this way:
 """
 
 # ╔═╡ 87f1b50a-cb53-4aac-aed6-b3c7c36959b0
-initial_encoder = create_satellite_embedding()
+initial_encoder = create_satellite_embedding() |> gpu
 
 # ╔═╡ 10ce5116-edfa-4b1a-9f9f-7400e5b761ec
 md"""
@@ -946,9 +946,9 @@ This ratio is by definition greater than one. The closer it is to one, the bette
 weights of `model`. We thus track this metric during training.
 """
 function shortest_path_cost_ratio(model, x, y_true, θ_true; maximizer)
-	θ = model(x)
-	y = maximizer(θ)
-	return dot(θ_true, y) / dot(θ_true, y_true)
+	θ_cpu = model(x) |> cpu
+	y = maximizer(θ_cpu)
+	return dot(cpu(θ_true), y) / dot(cpu(θ_true), cpu(y_true))
 end
 
 # ╔═╡ 15ffc121-b27c-4eec-a829-a05904215426
@@ -1023,8 +1023,8 @@ We first define the hyper-parameters for the learning process. They include:
 begin
 	ε = 0.1
 	M = 10
-	nb_epochs = 100
-	batch_size = 10
+	nb_epochs = 10
+	batch_size = 5
 	lr_start = 1e-3
 end;
 
@@ -1287,7 +1287,7 @@ loss = FenchelYoungLoss(perturbed_maximizer)
 encoder = deepcopy(initial_encoder) |> gpu
 
 # ╔═╡ 91e63e47-f8e4-4a23-a8e3-2617879f8076
-imitation_flux_loss(x, m, θ, y) = loss(encoder(x), y)
+imitation_flux_loss(x, m, θ, y) = loss(cpu(encoder(x)), cpu(y))
 
 # ╔═╡ b7e0fe81-b21d-4cff-ba63-e6db12f04c34
 md"""
@@ -1331,12 +1331,12 @@ TwoColumn(md"Choose dataset you want to evaluate on:", md"""data = $(@bind data 
 # ╔═╡ 452ba406-f073-467a-9064-b330fe9ce6cf
 begin
 	test_predictions = []
-	dataset_to_test = data
+	dataset_to_test = data |> gpu
 	for (x, mask, θ_true, y_true) in dataset_to_test 
 		θ₀ = initial_encoder(x)
-		y₀ = chosen_maximizer(θ₀)
+		y₀ = chosen_maximizer(cpu(θ₀))
 		θ = final_encoder(x)
-		y = chosen_maximizer(θ)
+		y = chosen_maximizer(cpu(θ))
 		push!(test_predictions, (; x, y_true, θ_true, θ₀, y₀, θ, y))
 	end
 end
@@ -1347,7 +1347,7 @@ md"""
 """
 
 # ╔═╡ e2d6629e-0512-43ab-adae-f916811b1fc7
-(; x, y_true, θ_true, θ₀, y₀, θ, y) = test_predictions[j]
+(; x, y_true, θ_true, θ₀, y₀, θ, y) = test_predictions[j] |> cpu
 
 # ╔═╡ c5ce2443-745d-43ea-ac8f-4dbbe3169dd3
 plot_image_weights_path(x, y_true, θ_true)
@@ -4240,7 +4240,7 @@ version = "1.4.1+1"
 # ╟─37761f25-bf80-47ee-9fca-06fce1047364
 # ╟─97df1403-7858-4715-856d-f330926a9bfd
 # ╟─02d14966-9887-40cb-a04d-09774ff72d27
-# ╠═a9ca100d-8881-4c31-9ab9-e987baf91e2c
+# ╟─a9ca100d-8881-4c31-9ab9-e987baf91e2c
 # ╟─721893e8-9252-4fcd-9ef7-59b70bffb916
 # ╟─8666701b-223f-4dfc-a4ff-aec17c7e0ab2
 # ╟─1df5a84a-7ef3-43fc-8ffe-6a8245b31f8e
