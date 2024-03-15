@@ -1,6 +1,6 @@
 ## Intro
 
-Le Machine Learning et la Recherche opérationnelle appartiennent tous deux au domaine de l'IA, mais leurs approches diffèrent. Le Machine Learning tire parti des données passées pour effectuer des tâches telles que la classification ou la régression (à l'aide d'algorithmes tels que SVM, arbres de décision, CNN, etc.), tandis que la recherche opérationnelle vise à optimiser l'utilisation des ressources afin d'améliorer la prise de décision et l'efficacité (en utilisant des méthodes telles que SIMPLEX, PSO, etc.). Leurs différences dans l'approche des problèmes fait que ces deux domaines sont rarement combinés pour résoudre des problèmes.
+Le Machine Learning (ML) et la Recherche Opérationnelle (RO) appartiennent tous deux au domaine de l'IA, mais leurs approches diffèrent. Le Machine Learning tire parti des données passées pour effectuer des tâches telles que la classification ou la régression (à l'aide d'algorithmes tels que SVM, arbres de décision, CNN, etc.), tandis que la recherche opérationnelle vise à optimiser l'utilisation des ressources afin d'améliorer la prise de décision et l'efficacité (en utilisant des méthodes telles que SIMPLEX, PSO, etc.). Leurs différences dans l'approche des problèmes fait que ces deux domaines sont rarement combinés.
 
 Dans ce blog, nous allons explorer une approche novatrice pour trouver le chemin le plus court sur une image, en combinant judicieusement des techniques de Machine Learning (vision par ordinateur) et de Recherche Opérationnelle (recherche de chemin). Nous débuterons par une méthode naïve qui se concentre exclusivement sur le Machine Learning, puis nous présenterons une seconde solution qui surmonte les défis rencontrés en intégrant les deux approches.
 
@@ -12,7 +12,7 @@ En tant que chef d'une équipe du rallye Paris/Dakar, notre véhicule est capabl
 
 ### La technologie
 
-Le code que nous allons partager est écrit en Julia, car cette technologie répond à nos exigences en termes de performance et de concision. De plus, bien que la communauté soit encore relativement restreinte, de nombreux modules ont été développés pour le Machine Learning et la Recherche Opérationnelle (tels que Flux.jl, Graphs, etc.). Vous pouvez trouver les instructions pour le téléchargement ici. Aucune expérience préalable dans ce langage n'est nécessaire pour suivre la suite.
+Le code que nous allons partager est écrit en Julia, car cette technologie répond à nos exigences en termes de performance et de concision. De plus, bien que la communauté soit encore relativement restreinte, de nombreux modules ont été développés pour le Machine Learning et la Recherche Opérationnelle (tels que Flux.jl, Graphs.jl, etc.). Vous pouvez trouver les instructions pour le téléchargement ici. Aucune expérience préalable dans ce langage n'est nécessaire pour suivre la suite.
 
 ## Le Dataset
 
@@ -20,7 +20,7 @@ Le jeu de données avec lequel nous travaillerons est constitué du dossier d'im
 
 ### Le type de sol
 
-Il est évident que votre voiture ne va pas rouler aussi si elle est en forêt ou en montagne ou sur un autre sol. Il va falloir associer des poids à chacun des types de sol et pour cela il est nécessaire de savoir les classer. C'est pourquoi nous avons utiliser un premier Dataset que vous pouvez télécharger ici. Nous avons entraîner un premier modèle de Deep Learning permettant cette classification. Comme il ne s'agit pas du sujet principal nous allons partager les poids du modèle entraîné mais nous rentrerons pas dans les détails techniques. Vous pouvez néanmoins consulter le notebook permettant de préparer les données ici.
+Il est évident que votre voiture ne va pas rouler aussi si elle est en forêt ou en montagne ou sur un autre sol. Il va falloir associer des poids à chacun des types de sol et pour cela il est nécessaire de savoir les classer. C'est pourquoi nous avons utilisé un premier Dataset que vous pouvez télécharger ici. Nous avons entraîné un premier modèle de Deep Learning permettant cette classification. Comme il ne s'agit pas du sujet principal nous allons partager les poids du modèle entraîné mais nous ne rentrerons pas dans les détails techniques. Vous pouvez néanmoins consulter le notebook permettant de préparer les données ici.
 
 ### Favoriser les routes
 
