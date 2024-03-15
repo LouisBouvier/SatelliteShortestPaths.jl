@@ -18,6 +18,8 @@ end
 begin
 	using Colors
 	using CSV
+	using CUDA
+	using cuDNN
 	using DataFrames
 	using DifferentiableFrankWolfe
 	using Flux
@@ -547,75 +549,10 @@ md"""
 The first dataset function `read_dataset` is used to read the images, cell costs and shortest path labels stored in files of the dataset folder.
 """
 
-# ╔═╡ bec571ff-86c7-4fd7-afcd-c27595563824
-"""
-	read_dataset(decompressed_path::String, dtype::String="train", nb_samples::Int)
-
-Read the dataset of type `dtype` at the `decompressed_path` location.
-The dataset is made of images of satellite terrains, cell cost labels and shortest path labels.
-They are returned separately, with proper axis permutation and image scaling to be consistent with 
-`Flux` embeddings.
-"""
-function read_dataset(decompressed_path::String, dtype::String="train",nb_samples::Int=100)
-	# metadata
-	metadata_df = DataFrame(CSV.File(joinpath(decompressed_path, "metadata.csv")))
-	names_dtype = metadata_df[metadata_df[!, "split"] .== dtype, "image_id"][1:nb_samples]
-	# get the size of images and weights to create arrays
-	size_image = size(channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(names_dtype[1])_sat.jpg"))))
-	size_weight = size(npzread(joinpath(decompressed_path, dtype, "$(names_dtype[1])_sat.npy")))
-	size_mask = size(channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(names_dtype[1])_mask.png"))))
-	size_path = size(npzread(joinpath(decompressed_path, dtype, "$(names_dtype[1])_shortest_path.npy")))
-	# create arrays to fill
-	terrain_images = Array{Float32}(undef, length(names_dtype), size_image[1], size_image[2], size_image[3])
-	terrain_weights = Array{Float32}(undef, length(names_dtype), size_weight[1], size_weight[2])
-	terrain_masks = Array{Float32}(undef, length(names_dtype), size_mask[1], size_mask[2], size_mask[3])
-	terrain_paths = Array{Float32}(undef, length(names_dtype), size_path[1], size_path[2])
-	@progress for (i, name) in enumerate(names_dtype)
-		# Open files
-		terrain_images[i, :, :, :] = channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(name)_sat.jpg")))
-		terrain_weights[i, :, :] = npzread(joinpath(decompressed_path, dtype, "$(name)_sat.npy"))
-		terrain_masks[i, :, :, :] = channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(name)_mask.png")))
-		terrain_paths[i, :, :] = npzread(joinpath(decompressed_path, dtype, "$(name)_shortest_path.npy"))	
-	end
-	# Reshape for Flux
-	terrain_images = permutedims(terrain_images, (3, 4, 2, 1))
-	terrain_masks = permutedims(terrain_masks, (3, 4, 2, 1))
-	terrain_weights = permutedims(terrain_weights, (2, 3, 1))
-	terrain_paths = permutedims(terrain_paths, (2, 3, 1))
-	println("Train images shape: ", size(terrain_images))
-	println("Train masks shape: ", size(terrain_masks))
-	println("Weights shape:", size(terrain_weights))
-	println("Train labels shape: ", size(terrain_paths))
-	# return terrain_images, terrain_labels, terrain_weights
-	return terrain_images, terrain_masks, terrain_weights, terrain_paths
-end
-
 # ╔═╡ a36e80da-6780-44ca-9e00-a42af83e3657
 md"""
 Once the files are read, we want to give an adequate format to the dataset, so that we can easily load samples to train and test models. The function `create_dataset` therefore calls the previous `read_dataset` function: 
 """
-
-# ╔═╡ 5ff9ad90-c472-4eb9-9b31-4c5dffe44145
-"""
-	create_dataset(decompressed_path::String, nb_samples::Int=10000)
-
-Create the dataset corresponding to the data located at `decompressed_path`, possibly sub-sampling `nb_samples` points.
-The dataset is made of images of satellite terrains, cell cost labels and shortest path labels.
-It is a `Vector` of tuples, each `Tuple` being a dataset point.
-"""
-function create_dataset(decompressed_path::String, nb_samples::Int=10000)
-	terrain_images, terrain_masks, terrain_weights, terrain_paths = read_dataset(
-		decompressed_path, "train", nb_samples
-	)
-	X = [
-		reshape(terrain_images[:, :, :, i], (size(terrain_images[:, :, :, i])..., 1)) for
-		i in 1:nb_samples
-	]
-	Y = [terrain_paths[:, :, i] for i in 1:nb_samples]
-	WG = [terrain_weights[:, :, i] for i in 1:nb_samples]
-	M = [terrain_masks[:, :, :, i] for i in 1:nb_samples]
-	return collect(zip(X, M, WG, Y))
-end
 
 # ╔═╡ 80defee2-8e56-4375-84dc-99bee48883da
 md"""
@@ -665,20 +602,9 @@ nb_samples, train_prop = 100, 0.8;
 # ╔═╡ 52292d94-5245-42b4-9c11-1c53dfc5d5fb
 info(md"We focus only on $nb_samples dataset points, and use a $(trunc(Int, train_prop*100))% / $(trunc(Int, 100 - train_prop*100))% train/test split.")
 
-# ╔═╡ 614a469e-0530-4983-82a9-e521097d57a9
-begin
-	dataset = create_dataset(decompressed_path, nb_samples)
-	train_dataset, test_dataset = train_test_split(dataset, train_prop);
-end;
-
 # ╔═╡ 41a134b8-0c8a-4d79-931d-5df7ea524f73
 md"""
 We can have a glimpse at the dataset, use the slider to visualize each tuple (image, weights, label path).
-"""
-
-# ╔═╡ 42151898-a5a9-4677-aa0e-675e986bb41b
-md"""
-``n =`` $(@bind n Slider(1:length(dataset); default=1, show_value=true))
 """
 
 # ╔═╡ ebee2d90-d2a8-44c1-ae0b-2823c007bf1d
@@ -791,14 +717,6 @@ md"""
 	Note that we use the function `grid_dijkstra` already implemented in the `GridGraphs.jl` package when we deal with non-negative cell costs. In the following, we will use either Dijkstra or Ford-Bellman algorithm depending on the learning pipeline. You will have to modify the maximizer function to use depending on the experience you do.
 """
 
-# ╔═╡ 8581d294-4d19-40dc-a10a-79e8922ecedb
-md"""
-``n_p =`` $(@bind n_p Slider(1:length(dataset); default=1, show_value=true))
-"""
-
-# ╔═╡ 67d8f55d-bdbe-4407-bf9b-b34805edcb76
-ground_truth_path = bellman_maximizer(-dataset[n_p][3])
-
 # ╔═╡ 87cbc472-6330-4a27-b10f-b8d881b79249
 md"""
 The following cell is used to create and save the shortest paths based on ground truth weights:
@@ -808,7 +726,7 @@ The following cell is used to create and save the shortest paths based on ground
 # begin
 # 	metadata_df = DataFrame(CSV.File(joinpath(decompressed_path, "metadata.csv")))
 # 	names_dtype = metadata_df[metadata_df[!, "split"] .== "train", "image_id"][1:nb_samples]
-# 	@progress for (i, (x, w, m)) in enumerate(dataset)
+# 	@progress for (i, (x, m, w, y)) in enumerate(dataset)
 # 		ground_truth_path = bellman_maximizer(-w)
 # 		npzwrite(joinpath(decompressed_path, "train", "$(names_dtype[i])_shortest_path.npy"), ground_truth_path)
 # 	end
@@ -846,8 +764,101 @@ end
 Compute minus softplus element-wise on tensor `x`.
 """
 function neg_tensor(x)
-    return -softplus.(x)
+    return -relu.(x)
 end
+
+# ╔═╡ bec571ff-86c7-4fd7-afcd-c27595563824
+"""
+	read_dataset(decompressed_path::String, dtype::String="train", nb_samples::Int)
+
+Read the dataset of type `dtype` at the `decompressed_path` location.
+The dataset is made of images of satellite terrains, cell cost labels and shortest path labels.
+They are returned separately, with proper axis permutation and image scaling to be consistent with 
+`Flux` embeddings.
+"""
+function read_dataset(decompressed_path::String, dtype::String="train",nb_samples::Int=100)
+	# metadata
+	metadata_df = DataFrame(CSV.File(joinpath(decompressed_path, "metadata.csv")))
+	names_dtype = metadata_df[metadata_df[!, "split"] .== dtype, "image_id"][1:nb_samples]
+	# get the size of images and weights to create arrays
+	size_image = size(channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(names_dtype[1])_sat.jpg"))))
+	# size_weight = size(npzread(joinpath(decompressed_path, dtype, "$(names_dtype[1])_sat.npy")))
+	size_mask = size(channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(names_dtype[1])_mask.png"))))
+	size_path = size(npzread(joinpath(decompressed_path, dtype, "$(names_dtype[1])_shortest_path.npy")))
+	# create arrays to fill
+	terrain_images = Array{Float32}(undef, length(names_dtype), size_image[1], size_image[2], size_image[3])
+	# terrain_weights = Array{Float32}(undef, length(names_dtype), size_weight[1], size_weight[2])
+	terrain_masks = Array{Float32}(undef, length(names_dtype), size_mask[1], size_mask[2], size_mask[3])
+	terrain_paths = Array{Float32}(undef, length(names_dtype), size_path[1], size_path[2])
+	@progress for (i, name) in enumerate(names_dtype)
+		# Open files
+		terrain_images[i, :, :, :] = channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(name)_sat.jpg")))
+		# terrain_weights[i, :, :] = npzread(joinpath(decompressed_path, dtype, "$(name)_sat.npy"))
+		terrain_masks[i, :, :, :] = channelview(FileIO.load(joinpath(decompressed_path, dtype, "$(name)_mask.png")))
+		terrain_paths[i, :, :] = npzread(joinpath(decompressed_path, dtype, "$(name)_shortest_path.npy"))	
+	end
+	# Reshape for Flux
+	process_model = Flux.Chain(AdaptiveMaxPool((32,32)),
+        average_tensor,
+        neg_tensor,
+		x -> 1 .+ x,
+		x-> reshape(x, size(x, 1), size(x, 2), size(x, 4))
+	)
+	terrain_images = permutedims(terrain_images, (3, 4, 2, 1))
+	terrain_masks = permutedims(terrain_masks, (3, 4, 2, 1))
+	# terrain_weights = permutedims(terrain_weights, (2, 3, 1))
+	terrain_weights = process_model(terrain_masks)
+	terrain_paths = permutedims(terrain_paths, (2, 3, 1))
+	println("Train images shape: ", size(terrain_images))
+	println("Train masks shape: ", size(terrain_masks))
+	println("Weights shape:", size(terrain_weights))
+	println("Train labels shape: ", size(terrain_paths))
+	return terrain_images, terrain_masks, terrain_weights, terrain_paths
+end
+
+# ╔═╡ 5ff9ad90-c472-4eb9-9b31-4c5dffe44145
+"""
+	create_dataset(decompressed_path::String, nb_samples::Int=10000)
+
+Create the dataset corresponding to the data located at `decompressed_path`, possibly sub-sampling `nb_samples` points.
+The dataset is made of images of satellite terrains, cell cost labels and shortest path labels.
+It is a `Vector` of tuples, each `Tuple` being a dataset point.
+"""
+function create_dataset(decompressed_path::String, nb_samples::Int=10000)
+	terrain_images, terrain_masks, terrain_weights, terrain_paths = read_dataset(
+		decompressed_path, "train", nb_samples
+	)
+	X = [
+		reshape(terrain_images[:, :, :, i], (size(terrain_images[:, :, :, i])..., 1)) for
+		i in 1:nb_samples
+	]
+	Y = [terrain_paths[:, :, i] for i in 1:nb_samples]
+	WG = [terrain_weights[:, :, i] for i in 1:nb_samples]
+	M = [terrain_masks[:, :, :, i] for i in 1:nb_samples]
+	return collect(zip(X, M, WG, Y))
+end
+
+# ╔═╡ 614a469e-0530-4983-82a9-e521097d57a9
+begin
+	dataset = create_dataset(decompressed_path, nb_samples)
+	train_dataset, test_dataset = train_test_split(dataset, train_prop);
+end;
+
+# ╔═╡ 42151898-a5a9-4677-aa0e-675e986bb41b
+md"""
+``n =`` $(@bind n Slider(1:length(dataset); default=1, show_value=true))
+"""
+
+# ╔═╡ 8581d294-4d19-40dc-a10a-79e8922ecedb
+md"""
+``n_p =`` $(@bind n_p Slider(1:length(dataset); default=1, show_value=true))
+"""
+
+# ╔═╡ 67d8f55d-bdbe-4407-bf9b-b34805edcb76
+ground_truth_path = bellman_maximizer(-dataset[n_p][3])
+
+# ╔═╡ 92cbd9fb-2fdf-45ed-aed5-2cc772c09a93
+dataset[n_p][3]
 
 # ╔═╡ 721893e8-9252-4fcd-9ef7-59b70bffb916
 """
@@ -1012,8 +1023,8 @@ We first define the hyper-parameters for the learning process. They include:
 begin
 	ε = 0.1
 	M = 10
-	nb_epochs = 50
-	batch_size = 8
+	nb_epochs = 100
+	batch_size = 10
 	lr_start = 1e-3
 end;
 
@@ -1204,8 +1215,8 @@ function train_function!(;
 )
 	# batch stuff
 	batch_loss(batch) = sum(loss(item...) for item in batch)
-	train_dataset = Flux.DataLoader(train_data; batchsize=batch_size)
-	test_dataset = Flux.DataLoader(test_data; batchsize=length(test_data))
+	train_dataset = Flux.DataLoader(train_data; batchsize=batch_size) |> gpu
+	test_dataset = Flux.DataLoader(test_data; batchsize=length(test_data)) |> gpu
 
 	# Store the train loss and gap metric
 	losses = Matrix{Float64}(undef, nb_epochs, 2)
@@ -1273,7 +1284,7 @@ perturbed_maximizer = PerturbedAdditive(chosen_maximizer; ε=ε, nb_samples=M)
 loss = FenchelYoungLoss(perturbed_maximizer)
 
 # ╔═╡ 6ef79e5c-ae76-48f8-8f13-c000bbfdfc04
-encoder = deepcopy(initial_encoder)
+encoder = deepcopy(initial_encoder) |> gpu
 
 # ╔═╡ 91e63e47-f8e4-4a23-a8e3-2617879f8076
 imitation_flux_loss(x, m, θ, y) = loss(encoder(x), y)
@@ -1370,6 +1381,7 @@ cost(y₀; c_true = θ_true)
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 Colors = "5ae59095-9a9b-59fe-a467-6f913c188581"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DifferentiableFrankWolfe = "b383313e-5450-4164-a800-befbd27b574d"
@@ -1392,9 +1404,11 @@ ProgressLogging = "33c8b6b6-d38a-422a-b730-caa89a2f386c"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 UnicodePlots = "b8865327-cd53-5732-bb35-84acbb429228"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
+cuDNN = "02a925ec-e4fe-4b08-9a7e-0d78e3d38ccd"
 
 [compat]
 CSV = "~0.10.13"
+CUDA = "~5.2.0"
 Colors = "~0.12.10"
 DataFrames = "~1.6.1"
 DifferentiableFrankWolfe = "~0.2.1"
@@ -1414,6 +1428,7 @@ PlutoUI = "~0.7.58"
 ProgressLogging = "~0.1.4"
 UnicodePlots = "~3.6.4"
 Zygote = "~0.6.69"
+cuDNN = "~1.3.0"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -1422,7 +1437,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.1"
 manifest_format = "2.0"
-project_hash = "8ae1621dcae4c52fbc4e1fbecf7743197f1b5e65"
+project_hash = "08e26707c7ba253a41472736c7d8f1f44acf3551"
 
 [[deps.AMD]]
 deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse_jll"]
@@ -1575,6 +1590,12 @@ git-tree-sha1 = "16351be62963a67ac4083f748fdb3cca58bfd52f"
 uuid = "39de3d68-74b9-583c-8d2d-e117c070f3a9"
 version = "0.4.7"
 
+[[deps.BFloat16s]]
+deps = ["LinearAlgebra", "Printf", "Random", "Test"]
+git-tree-sha1 = "dbf84058d0a8cbbadee18d25cf606934b22d7c66"
+uuid = "ab4f0b2a-ad5b-11e8-123f-65d77653426b"
+version = "0.4.2"
+
 [[deps.BSON]]
 git-tree-sha1 = "4c3e506685c527ac6a54ccc0c8c76fd6f91b42fb"
 uuid = "fbb218c0-5317-5bc6-957e-2ee96dd4b1f0"
@@ -1647,6 +1668,41 @@ deps = ["CodecZlib", "Dates", "FilePathsBase", "InlineStrings", "Mmap", "Parsers
 git-tree-sha1 = "a44910ceb69b0d44fe262dd451ab11ead3ed0be8"
 uuid = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 version = "0.10.13"
+
+[[deps.CUDA]]
+deps = ["AbstractFFTs", "Adapt", "BFloat16s", "CEnum", "CUDA_Driver_jll", "CUDA_Runtime_Discovery", "CUDA_Runtime_jll", "Crayons", "DataFrames", "ExprTools", "GPUArrays", "GPUCompiler", "KernelAbstractions", "LLVM", "LLVMLoopInfo", "LazyArtifacts", "Libdl", "LinearAlgebra", "Logging", "NVTX", "Preferences", "PrettyTables", "Printf", "Random", "Random123", "RandomNumbers", "Reexport", "Requires", "SparseArrays", "StaticArrays", "Statistics"]
+git-tree-sha1 = "baa8ea7a1ea63316fa3feb454635215773c9c845"
+uuid = "052768ef-5323-5732-b1bb-66c8b64840ba"
+version = "5.2.0"
+weakdeps = ["ChainRulesCore", "SpecialFunctions"]
+
+    [deps.CUDA.extensions]
+    ChainRulesCoreExt = "ChainRulesCore"
+    SpecialFunctionsExt = "SpecialFunctions"
+
+[[deps.CUDA_Driver_jll]]
+deps = ["Artifacts", "JLLWrappers", "LazyArtifacts", "Libdl", "Pkg"]
+git-tree-sha1 = "d01bfc999768f0a31ed36f5d22a76161fc63079c"
+uuid = "4ee394cb-3365-5eb0-8335-949819d2adfc"
+version = "0.7.0+1"
+
+[[deps.CUDA_Runtime_Discovery]]
+deps = ["Libdl"]
+git-tree-sha1 = "2cb12f6b2209f40a4b8967697689a47c50485490"
+uuid = "1af6417a-86b4-443c-805f-a4643ffb695f"
+version = "0.2.3"
+
+[[deps.CUDA_Runtime_jll]]
+deps = ["Artifacts", "CUDA_Driver_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "TOML"]
+git-tree-sha1 = "8e25c009d2bf16c2c31a70a6e9e8939f7325cc84"
+uuid = "76a88914-d11a-5bdc-97e0-2f5a05c973a2"
+version = "0.11.1+0"
+
+[[deps.CUDNN_jll]]
+deps = ["Artifacts", "CUDA_Runtime_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "TOML"]
+git-tree-sha1 = "75923dce4275ead3799b238e10178a68c07dbd3b"
+uuid = "62b44479-cb7b-5706-934f-f13b2eb2e645"
+version = "8.9.4+0"
 
 [[deps.Cairo_jll]]
 deps = ["Artifacts", "Bzip2_jll", "CompilerSupportLibraries_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "JLLWrappers", "LZO_jll", "Libdl", "Pixman_jll", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Zlib_jll", "libpng_jll"]
@@ -1773,9 +1829,9 @@ version = "0.3.2"
 
 [[deps.ConcurrentUtilities]]
 deps = ["Serialization", "Sockets"]
-git-tree-sha1 = "9c4708e3ed2b799e6124b5673a712dda0b596a9b"
+git-tree-sha1 = "87944e19ea747808b73178ce5ebb74081fdf2d35"
 uuid = "f0e56b4a-5159-44fe-b623-3e5288b988bb"
-version = "2.3.1"
+version = "2.4.0"
 
 [[deps.ConstructionBase]]
 deps = ["LinearAlgebra"]
@@ -2070,9 +2126,9 @@ version = "1.0.10+0"
 
 [[deps.Functors]]
 deps = ["LinearAlgebra"]
-git-tree-sha1 = "166c544477f97bbadc7179ede1c1868e0e9b426b"
+git-tree-sha1 = "8ae30e786837ce0a24f5e2186938bf3251ab94b2"
 uuid = "d9f16b24-f501-4c13-a1f2-28368ffc5196"
-version = "0.4.7"
+version = "0.4.8"
 
 [[deps.Future]]
 deps = ["Random"]
@@ -2095,6 +2151,12 @@ deps = ["Adapt"]
 git-tree-sha1 = "ec632f177c0d990e64d955ccc1b8c04c485a0950"
 uuid = "46192b85-c4d5-4398-a991-12ede77f4527"
 version = "0.1.6"
+
+[[deps.GPUCompiler]]
+deps = ["ExprTools", "InteractiveUtils", "LLVM", "Libdl", "Logging", "Scratch", "TimerOutputs", "UUIDs"]
+git-tree-sha1 = "a846f297ce9d09ccba02ead0cae70690e072a119"
+uuid = "61eb1bfa-7361-4325-ad38-22787b887f55"
+version = "0.25.0"
 
 [[deps.GR]]
 deps = ["Artifacts", "Base64", "DelimitedFiles", "Downloads", "GR_jll", "HTTP", "JSON", "Libdl", "LinearAlgebra", "Pkg", "Preferences", "Printf", "Random", "Serialization", "Sockets", "TOML", "Tar", "Test", "UUIDs", "p7zip_jll"]
@@ -2128,9 +2190,9 @@ version = "9.55.0+4"
 
 [[deps.Glib_jll]]
 deps = ["Artifacts", "Gettext_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Libiconv_jll", "Libmount_jll", "PCRE2_jll", "Zlib_jll"]
-git-tree-sha1 = "3ec2a90c4b4d8e452bfd16ad9f6cb09b78256bce"
+git-tree-sha1 = "359a1ba2e320790ddbe4ee8b4d54a305c0ea2aff"
 uuid = "7746bdde-850d-59dc-9ae8-88ece973131d"
-version = "2.78.3+0"
+version = "2.80.0+0"
 
 [[deps.Graphics]]
 deps = ["Colors", "LinearAlgebra", "NaNMath"]
@@ -2489,6 +2551,12 @@ git-tree-sha1 = "7b762d81887160169ddfc93a47e5fd7a6a3e78ef"
 uuid = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
 version = "0.9.29"
 
+[[deps.JuliaNVTXCallbacks_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "af433a10f3942e882d3c671aacb203e006a5808f"
+uuid = "9c1d0b0a-7046-5b2e-a33f-ea22f176ac7e"
+version = "0.2.1+0"
+
 [[deps.JuliaVariables]]
 deps = ["MLStyle", "NameResolution"]
 git-tree-sha1 = "49fb3cb53362ddadb4415e9b73926d6b40709e70"
@@ -2536,18 +2604,21 @@ deps = ["CEnum", "LLVMExtra_jll", "Libdl", "Preferences", "Printf", "Requires", 
 git-tree-sha1 = "ddab4d40513bce53c8e3157825e245224f74fae7"
 uuid = "929cbde3-209d-540e-8aea-75f648917ca0"
 version = "6.6.0"
+weakdeps = ["BFloat16s"]
 
     [deps.LLVM.extensions]
     BFloat16sExt = "BFloat16s"
-
-    [deps.LLVM.weakdeps]
-    BFloat16s = "ab4f0b2a-ad5b-11e8-123f-65d77653426b"
 
 [[deps.LLVMExtra_jll]]
 deps = ["Artifacts", "JLLWrappers", "LazyArtifacts", "Libdl", "TOML"]
 git-tree-sha1 = "88b916503aac4fb7f701bb625cd84ca5dd1677bc"
 uuid = "dad2f222-ce93-54a1-a47d-0025e8a3acab"
 version = "0.0.29+0"
+
+[[deps.LLVMLoopInfo]]
+git-tree-sha1 = "2e5c102cfc41f48ae4740c7eca7743cc7e7b75ea"
+uuid = "8b046642-f1f6-4319-8d3c-209ddc03c586"
+version = "1.0.0"
 
 [[deps.LLVMOpenMP_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -2653,10 +2724,10 @@ uuid = "94ce4f54-9a6c-5748-9c1c-f9c7231a4531"
 version = "1.17.0+0"
 
 [[deps.Libmount_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "9c30530bf0effd46e15e0fdcf2b8636e78cbbd73"
+deps = ["Artifacts", "JLLWrappers", "Libdl"]
+git-tree-sha1 = "dae976433497a2f841baadea93d27e68f1a12a97"
 uuid = "4b2f31a3-9ecc-558c-b454-b3730dcb73e9"
-version = "2.35.0+0"
+version = "2.39.3+0"
 
 [[deps.Libtiff_jll]]
 deps = ["Artifacts", "JLLWrappers", "JpegTurbo_jll", "LERC_jll", "Libdl", "XZ_jll", "Zlib_jll", "Zstd_jll"]
@@ -2813,12 +2884,10 @@ deps = ["Artifacts", "BSON", "ChainRulesCore", "Flux", "Functors", "JLD2", "Lazy
 git-tree-sha1 = "5aac9a2b511afda7bf89df5044a2e0b429f83152"
 uuid = "dbeba491-748d-5e0e-a39e-b530a07fa0cc"
 version = "0.9.3"
+weakdeps = ["CUDA"]
 
     [deps.Metalhead.extensions]
     MetalheadCUDAExt = "CUDA"
-
-    [deps.Metalhead.weakdeps]
-    CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 
 [[deps.MicroCollections]]
 deps = ["BangBang", "InitialValues", "Setfield"]
@@ -2874,6 +2943,18 @@ deps = ["FileIO", "ZipFile"]
 git-tree-sha1 = "60a8e272fe0c5079363b28b0953831e2dd7b7e6f"
 uuid = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 version = "0.4.3"
+
+[[deps.NVTX]]
+deps = ["Colors", "JuliaNVTXCallbacks_jll", "Libdl", "NVTX_jll"]
+git-tree-sha1 = "53046f0483375e3ed78e49190f1154fa0a4083a1"
+uuid = "5da4648a-3479-48b8-97b9-01cb529c0a1f"
+version = "0.3.4"
+
+[[deps.NVTX_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "ce3269ed42816bf18d500c9f63418d4b0d9f5a3b"
+uuid = "e98f9f5b-d649-5603-91fd-7774390e6439"
+version = "3.1.0+2"
 
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
@@ -3196,6 +3277,18 @@ uuid = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 [[deps.Random]]
 deps = ["SHA"]
 uuid = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+[[deps.Random123]]
+deps = ["Random", "RandomNumbers"]
+git-tree-sha1 = "4743b43e5a9c4a2ede372de7061eed81795b12e7"
+uuid = "74087812-796a-5b5d-8853-05524746bad3"
+version = "1.7.0"
+
+[[deps.RandomNumbers]]
+deps = ["Random", "Requires"]
+git-tree-sha1 = "043da614cc7e95c703498a491e2c21f58a2b8111"
+uuid = "e6cf234a-135c-5ec9-84dd-332b85af5143"
+version = "1.5.3"
 
 [[deps.RangeArrays]]
 git-tree-sha1 = "b9039e93773ddcfc828f12aadf7115b4b4d225f5"
@@ -3918,6 +4011,12 @@ git-tree-sha1 = "27798139afc0a2afa7b1824c206d5e87ea587a00"
 uuid = "700de1a5-db45-46bc-99cf-38207098b444"
 version = "0.2.5"
 
+[[deps.cuDNN]]
+deps = ["CEnum", "CUDA", "CUDA_Runtime_Discovery", "CUDNN_jll"]
+git-tree-sha1 = "d433ec29756895512190cac9c96666d879f07b92"
+uuid = "02a925ec-e4fe-4b08-9a7e-0d78e3d38ccd"
+version = "1.3.0"
+
 [[deps.eudev_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "gperf_jll"]
 git-tree-sha1 = "431b678a28ebb559d224c0b6b6d01afce87c51ba"
@@ -4134,13 +4233,14 @@ version = "1.4.1+1"
 # ╠═62d66917-ef2e-4e64-ae6d-c281b8e81b4f
 # ╠═67d8f55d-bdbe-4407-bf9b-b34805edcb76
 # ╠═34701d56-63d1-4f6d-b3d0-52705f4f8820
+# ╠═92cbd9fb-2fdf-45ed-aed5-2cc772c09a93
 # ╟─87cbc472-6330-4a27-b10f-b8d881b79249
 # ╟─3476d181-ba67-4597-b05c-9caec23fa1e5
 # ╟─b8b79a69-2bbb-4329-a1d0-3429230787c1
 # ╟─37761f25-bf80-47ee-9fca-06fce1047364
 # ╟─97df1403-7858-4715-856d-f330926a9bfd
 # ╟─02d14966-9887-40cb-a04d-09774ff72d27
-# ╟─a9ca100d-8881-4c31-9ab9-e987baf91e2c
+# ╠═a9ca100d-8881-4c31-9ab9-e987baf91e2c
 # ╟─721893e8-9252-4fcd-9ef7-59b70bffb916
 # ╟─8666701b-223f-4dfc-a4ff-aec17c7e0ab2
 # ╟─1df5a84a-7ef3-43fc-8ffe-6a8245b31f8e
@@ -4151,13 +4251,13 @@ version = "1.4.1+1"
 # ╠═aa35bdee-3d2c-49ff-9483-795e0024de0c
 # ╟─3df21310-c44a-4132-acc0-a0db265a23a9
 # ╟─7469895b-06d2-4832-b981-d62b14a80fa8
-# ╠═8ce55cdd-6c1a-4fc3-843a-aa6ed1ad4c62
+# ╟─8ce55cdd-6c1a-4fc3-843a-aa6ed1ad4c62
 # ╟─15ffc121-b27c-4eec-a829-a05904215426
 # ╟─0adbb1a4-6e19-40d5-8f9d-865d932cd745
 # ╟─fd3a4158-5b98-4ddb-a8bd-3603259ee490
 # ╟─ea70f8e7-e25b-49cc-8cc2-e25b1aef6b0a
 # ╟─be2184a8-fed0-4a97-81cb-0b727f9c0444
-# ╠═6619b9ae-2608-4c8d-9561-bc579d673651
+# ╟─6619b9ae-2608-4c8d-9561-bc579d673651
 # ╟─c5e1ae85-8168-4cce-9b20-1cf21393a49f
 # ╟─3d28d1b4-9f99-44f6-97b5-110f675b5c22
 # ╟─f532c661-79ad-4c30-8aec-0379a84a3204
