@@ -549,224 +549,6 @@ md"""
 The first dataset function `read_dataset` is used to read the images, cell costs and shortest path labels stored in files of the dataset folder.
 """
 
-# ╔═╡ a36e80da-6780-44ca-9e00-a42af83e3657
-md"""
-Once the files are read, we want to give an adequate format to the dataset, so that we can easily load samples to train and test models. The function `create_dataset` therefore calls the previous `read_dataset` function: 
-"""
-
-# ╔═╡ 80defee2-8e56-4375-84dc-99bee48883da
-md"""
-Last, as usual in machine learning implementations, we split a dataset into train and test sets. The function `train_test_split` does the job:
-
-"""
-
-# ╔═╡ 687fc8b5-77a8-4875-b5e9-f942684ac6b6
-"""
-	train_test_split(X::AbstractVector, train_percentage::Real=0.5)
-
-Split a dataset contained in `X` into train and test datasets.
-The proportion of the initial dataset kept in the train set is `train_percentage`.
-"""
-function train_test_split(X::AbstractVector, train_percentage::Real=0.5)
-	N = length(X)
-	N_train = floor(Int, N * train_percentage)
-	N_test = N - N_train
-	train_ind, test_ind = 1:N_train, (N_train + 1):(N_train + N_test)
-	X_train, X_test = X[train_ind], X[test_ind]
-	return X_train, X_test
-end
-
-# ╔═╡ 69b6a4fe-c8f8-4371-abe1-906bc690d4a2
-md"""
-### c) Plot functions
-"""
-
-# ╔═╡ 8fcc69eb-9f6c-4fb1-a70c-80216eed306b
-md"""
-In the following cell, we define utility plot functions to have a glimpse at images, cell costs and paths. Their implementation is not at the core of this tutorial, they are thus hidden.
-"""
-
-# ╔═╡ 03bc22e3-2afa-4139-b8a4-b801dd8d3f4d
-md"""
-### d) Import and explore the dataset
-"""
-
-# ╔═╡ 3921124d-4f08-4f3c-856b-ad876d31e2c1
-md"""
-Once we have both defined the functions to read and create a dataset, and to visualize it, we want to have a look at images and paths. Before that, we set the size of the dataset, as well as the train proportion: 
-"""
-
-# ╔═╡ 948eae34-738d-4c60-98b9-8b69b1eb9b68
-nb_samples, train_prop = 100, 0.8;
-
-# ╔═╡ 52292d94-5245-42b4-9c11-1c53dfc5d5fb
-info(md"We focus only on $nb_samples dataset points, and use a $(trunc(Int, train_prop*100))% / $(trunc(Int, 100 - train_prop*100))% train/test split.")
-
-# ╔═╡ 41a134b8-0c8a-4d79-931d-5df7ea524f73
-md"""
-We can have a glimpse at the dataset, use the slider to visualize each tuple (image, weights, label path).
-"""
-
-# ╔═╡ ebee2d90-d2a8-44c1-ae0b-2823c007bf1d
-md"""
-## II - Combinatorial functions
-"""
-
-# ╔═╡ 63a63ca9-841e-40d7-b314-d5582772b634
-md"""
-We focus on additional optimization functions to define the combinatorial layer of our pipelines.
-"""
-
-# ╔═╡ 0fbd9c29-c5b6-407d-931d-945d1b915cd2
-md"""
-### a) Recap on the shortest path problem
-"""
-
-# ╔═╡ f960b309-0250-4692-96e0-a73f79f84c71
-md"""
-Let $D = (V, A)$ be a digraph, $(c_a)_{a \in A}$ the cost associated to the arcs of the digraph, and $(o, d) \in V^2$ the origin and destination nodes. The problem we consider is the following:
-
-**Shortest path problem:** Find an elementary path $P$ from node $o$ to node $d$ in the digraph $D$ with minimum cost $c(P) = \sum_{a \in P} c_a$.
-"""
-
-# ╔═╡ a88dfb2e-6aba-4ceb-b20a-829ebd3243bd
-md"""
-###  b) From shortest path to generic maximizer
-"""
-
-# ╔═╡ a16674b9-e4bf-4e12-a9c5-f67a61f24d7b
-md"""
-Now that we have defined and implemented an algorithm to deal with the shortest path problem, we wrap it in a maximizer function to match the generic framework of structured prediction.
-
-The maximizer needs to take predicted weights `θ` as their only input, and can take some keyword arguments if needed (some instance information for example).
-"""
-
-# ╔═╡ 38f354ec-0df3-4e19-9afb-5342c89b7275
-function dijkstra_maximizer(θ::AbstractMatrix; kwargs...)
-	g = GridGraph(-θ; directions=QUEEN_DIRECTIONS)
-	path = grid_dijkstra(g, 1, nv(g))
-	y = path_to_matrix(g, path)
-	return y
-end
-
-# ╔═╡ b6e0906e-6b76-44b8-a736-e7a872f8c2d7
-"""
-    grid_bellman_ford_satellite(g, s, d, length_max)
-
-Apply the Bellman-Ford algorithm on an `GridGraph` `g`, and return a `ShortestPathTree` with source `s` and destination `d`,
-among the paths having length smaller than `length_max`.
-"""
-function grid_bellman_ford_satellite(g::GridGraph{T,R,W,A}, s::Integer, d::Integer, length_max::Int = nv(g)) where {T,R,W,A}
-    # Init storage
-    parents = zeros(Int, nv(g), length_max + 1)
-    dists = fill(Inf, nv(g), length_max + 1)
-    # Add source
-    dists[s, 1] = zero(T)
-    # Main loop
-    for k in 1:length_max
-        for v in vertices(g)
-            for u in inneighbors(g, v)
-                d_u = dists[u, k]
-                if !isinf(d_u)
-                    d_v = dists[v, k + 1]
-                    d_v_through_u = d_u + GridGraphs.vertex_weight(g, v)
-                    if isinf(d_v) || (d_v_through_u < d_v)
-                        dists[v, k + 1] = d_v_through_u
-                        parents[v, k + 1] = u
-                    end
-                end
-            end
-        end
-    end
-    # Get length of the shortest path
-    k_short = argmin(dists[d,:])
-    if isinf(dists[d, k_short])
-        println("No shortest path with less than $length_max arcs")
-        return Int[]
-    end
-    # Deduce the path
-    v = d
-    path = [v]
-    k = k_short
-    while v != s
-        v = parents[v, k]
-        if v == 0
-            return Int[]
-        else
-            pushfirst!(path, v)
-            k = k - 1
-        end
-    end
-    return path
-end
-
-# ╔═╡ 3e54bce5-faf9-4954-980f-5d70737a3494
-function bellman_maximizer(θ::AbstractMatrix; kwargs...)
-	g = GridGraph(-θ; directions=QUEEN_DIRECTIONS)
-	path = grid_bellman_ford_satellite(g, 1, nv(g))
-	y = path_to_matrix(g, path)
-	return y
-end
-
-# ╔═╡ 22a00cb0-5aca-492b-beec-407ac7ef13d4
-danger(md"`InferOpt.jl` wrappers only take maximization algorithms as input. Don't forget to change some signs if your solving a minimization problem instead.")
-
-# ╔═╡ 596f8aee-34f4-4304-abbe-7100383ce0d1
-md"""
-!!! info "The maximizer function will depend on the pipeline"
-	Note that we use the function `grid_dijkstra` already implemented in the `GridGraphs.jl` package when we deal with non-negative cell costs. In the following, we will use either Dijkstra or Ford-Bellman algorithm depending on the learning pipeline. You will have to modify the maximizer function to use depending on the experience you do.
-"""
-
-# ╔═╡ 87cbc472-6330-4a27-b10f-b8d881b79249
-md"""
-The following cell is used to create and save the shortest paths based on ground truth weights:
-"""
-
-# ╔═╡ 3476d181-ba67-4597-b05c-9caec23fa1e5
-# begin
-# 	metadata_df = DataFrame(CSV.File(joinpath(decompressed_path, "metadata.csv")))
-# 	names_dtype = metadata_df[metadata_df[!, "split"] .== "train", "image_id"][1:nb_samples]
-# 	@progress for (i, (x, m, w, y)) in enumerate(dataset)
-# 		ground_truth_path = bellman_maximizer(-w)
-# 		npzwrite(joinpath(decompressed_path, "train", "$(names_dtype[i])_shortest_path.npy"), ground_truth_path)
-# 	end
-# end
-
-# ╔═╡ b8b79a69-2bbb-4329-a1d0-3429230787c1
-md"""
-## III - Learning functions
-"""
-
-# ╔═╡ 37761f25-bf80-47ee-9fca-06fce1047364
-md"""
-### a) Convolutional neural network: predictor for the cost vector
-"""
-
-# ╔═╡ 97df1403-7858-4715-856d-f330926a9bfd
-md"""
-We implemenat several elementary functions to define our machine learning predictor for the cell costs.
-"""
-
-# ╔═╡ 02d14966-9887-40cb-a04d-09774ff72d27
-"""
-    average_tensor(x)
-
-Average the tensor `x` along its third axis.
-"""
-function average_tensor(x)
-    return sum(x, dims = [3])/size(x)[3]
-end
-
-# ╔═╡ a9ca100d-8881-4c31-9ab9-e987baf91e2c
-"""
-    neg_tensor(x)
-
-Compute minus softplus element-wise on tensor `x`.
-"""
-function neg_tensor(x)
-    return -relu.(x)
-end
-
 # ╔═╡ bec571ff-86c7-4fd7-afcd-c27595563824
 """
 	read_dataset(decompressed_path::String, dtype::String="train", nb_samples::Int)
@@ -816,6 +598,11 @@ function read_dataset(decompressed_path::String, dtype::String="train",nb_sample
 	return terrain_images, terrain_masks, terrain_weights, terrain_paths
 end
 
+# ╔═╡ a36e80da-6780-44ca-9e00-a42af83e3657
+md"""
+Once the files are read, we want to give an adequate format to the dataset, so that we can easily load samples to train and test models. The function `create_dataset` therefore calls the previous `read_dataset` function: 
+"""
+
 # ╔═╡ 5ff9ad90-c472-4eb9-9b31-4c5dffe44145
 """
 	create_dataset(decompressed_path::String, nb_samples::Int=10000)
@@ -838,195 +625,37 @@ function create_dataset(decompressed_path::String, nb_samples::Int=10000)
 	return collect(zip(X, M, WG, Y))
 end
 
-# ╔═╡ 614a469e-0530-4983-82a9-e521097d57a9
-begin
-	dataset = create_dataset(decompressed_path, nb_samples)
-	train_dataset, test_dataset = train_test_split(dataset, train_prop);
-end;
-
-# ╔═╡ 42151898-a5a9-4677-aa0e-675e986bb41b
+# ╔═╡ 80defee2-8e56-4375-84dc-99bee48883da
 md"""
-``n =`` $(@bind n Slider(1:length(dataset); default=1, show_value=true))
+Last, as usual in machine learning implementations, we split a dataset into train and test sets. The function `train_test_split` does the job:
+
 """
 
-# ╔═╡ 8581d294-4d19-40dc-a10a-79e8922ecedb
-md"""
-``n_p =`` $(@bind n_p Slider(1:length(dataset); default=1, show_value=true))
+# ╔═╡ 687fc8b5-77a8-4875-b5e9-f942684ac6b6
 """
+	train_test_split(X::AbstractVector, train_percentage::Real=0.5)
 
-# ╔═╡ 67d8f55d-bdbe-4407-bf9b-b34805edcb76
-ground_truth_path = bellman_maximizer(-dataset[n_p][3])
-
-# ╔═╡ 92cbd9fb-2fdf-45ed-aed5-2cc772c09a93
-dataset[n_p][3]
-
-# ╔═╡ 721893e8-9252-4fcd-9ef7-59b70bffb916
+Split a dataset contained in `X` into train and test datasets.
+The proportion of the initial dataset kept in the train set is `train_percentage`.
 """
-    squeeze_last_dims(x)
-
-Squeeze two last dimensions on tensor `x`.
-"""
-function squeeze_last_dims(x)
-    return reshape(x, size(x, 1), size(x, 2))
+function train_test_split(X::AbstractVector, train_percentage::Real=0.5)
+	N = length(X)
+	N_train = floor(Int, N * train_percentage)
+	N_test = N - N_train
+	train_ind, test_ind = 1:N_train, (N_train + 1):(N_train + N_test)
+	X_train, X_test = X[train_ind], X[test_ind]
+	return X_train, X_test
 end
 
-# ╔═╡ 8666701b-223f-4dfc-a4ff-aec17c7e0ab2
+# ╔═╡ 69b6a4fe-c8f8-4371-abe1-906bc690d4a2
 md"""
-!!! info "CNN as predictor"
-	The following function defines the convolutional neural network we will use as cell costs predictor.
+### c) Plot functions
 """
 
-# ╔═╡ 1df5a84a-7ef3-43fc-8ffe-6a8245b31f8e
-"""
-    create_satellite_embedding()
-
-Create and return a `Flux.Chain` embedding for the satellite images, inspired by [differentiation of blackbox combinatorial solvers](https://github.com/martius-lab/blackbox-differentiation-combinatorial-solvers/blob/master/models.py).
-
-The embedding is made as follows:
-1) The first 5 layers of ResNet18 (convolution, batch normalization, relu, maxpooling and first resnet block).
-2) An adaptive maxpooling layer to get a (12x12x64) tensor per input image.
-3) An average over the third axis (of size 64) to get a (12x12x1) tensor per input image.
-4) The element-wize `neg_tensor` function to get cell weights of proper sign to apply shortest path algorithms.
-5) A squeeze function to forget the two last dimensions. 
-"""
-function create_satellite_embedding()
-    resnet18 = ResNet(18; pretrain=false, nclasses=1)
-    model_embedding = Chain(
-		resnet18.layers[1][1][1],
-		resnet18.layers[1][1][2],
-		resnet18.layers[1][1][3],
-		resnet18.layers[1][2][1],
-        AdaptiveMaxPool((32,32)),
-        average_tensor,
-        neg_tensor,
-        squeeze_last_dims,
-    )
-    return model_embedding
-end
-
-# ╔═╡ f42d1915-3490-4ae4-bb19-ac1383f453dc
+# ╔═╡ 8fcc69eb-9f6c-4fb1-a70c-80216eed306b
 md"""
-We can build the encoder this way:
+In the following cell, we define utility plot functions to have a glimpse at images, cell costs and paths. Their implementation is not at the core of this tutorial, they are thus hidden.
 """
-
-# ╔═╡ 87f1b50a-cb53-4aac-aed6-b3c7c36959b0
-initial_encoder = create_satellite_embedding() |> gpu
-
-# ╔═╡ 10ce5116-edfa-4b1a-9f9f-7400e5b761ec
-md"""
-### b) Loss and gap utility functions
-"""
-
-# ╔═╡ c69f0a97-84d6-4fd9-bf02-4cfa2132a9c1
-md"""
-In the cell below, we define the `cost` function seen as black-box to evaluate the cost of a given path on the grid, given the true costs `c_true`.
-"""
-
-# ╔═╡ aa35bdee-3d2c-49ff-9483-795e0024de0c
-cost(y; c_true) = dot(y, c_true)
-
-# ╔═╡ 3df21310-c44a-4132-acc0-a0db265a23a9
-md"""
-During training, we want to evaluate the quality of the predicted paths, both on the train and test datasets. We define the shortest path cost ratio between a candidate shortest path $\hat{y}$ and the label shortest path $y$ as: $r(\hat{y},y) = c(\hat{y}) / c(y)$.
-"""
-
-# ╔═╡ 7469895b-06d2-4832-b981-d62b14a80fa8
-md"""
-!!! info
-	The following code defines the `shortest_path_cost_ratio` function. The candidate path $\hat{y}$ is given by the output of `model` applied on image `x`, and `y` is the target shortest path.
-"""
-
-# ╔═╡ 8ce55cdd-6c1a-4fc3-843a-aa6ed1ad4c62
-"""
-	shortest_path_cost_ratio(model, x, y, kwargs)
-Compute the ratio between the cost of the solution given by the `model` cell costs and the cost of the true solution.
-We evaluate both the shortest path with respect to the weights given by `model(x)` and the labelled shortest path `y`
-using the true cell costs stored in `kwargs.wg.weights`. 
-This ratio is by definition greater than one. The closer it is to one, the better is the solution given by the current 
-weights of `model`. We thus track this metric during training.
-"""
-function shortest_path_cost_ratio(model, x, y_true, θ_true; maximizer)
-	θ_cpu = model(x) |> cpu
-	y = maximizer(θ_cpu)
-	return dot(cpu(θ_true), y) / dot(cpu(θ_true), cpu(y_true))
-end
-
-# ╔═╡ 15ffc121-b27c-4eec-a829-a05904215426
-"""
-	shortest_path_cost_ratio(model, batch)
-Compute the average cost ratio between computed and true shorest paths over `batch`. 
-"""
-function shortest_path_cost_ratio(model, batch; maximizer)
-	return sum(shortest_path_cost_ratio(model, item[1], item[4], item[3]; maximizer) for item in batch) / length(batch)
-end
-
-# ╔═╡ 0adbb1a4-6e19-40d5-8f9d-865d932cd745
-"""
-	shortest_path_cost_gap(; model, dataset)
-Compute the average cost ratio between computed and true shorest paths over `dataset`. 
-"""
-function shortest_path_cost_gap(; model, dataset, maximizer)
-	return (sum(shortest_path_cost_ratio(model, batch; maximizer) for batch in dataset) / length(dataset) - 1) * 100
-end
-
-# ╔═╡ fd3a4158-5b98-4ddb-a8bd-3603259ee490
-md"""
-### c) Main training function
-"""
-
-# ╔═╡ ea70f8e7-e25b-49cc-8cc2-e25b1aef6b0a
-md"""
-We now consider the generic learning function. We want to minimize a given `flux_loss` over the `train_dataset`, by updating the parameters of `encoder`. We do so using `Flux.jl` package which contains utility functions to backpropagate in a stochastic gradient descent framework. We also track the loss and cost ratio metrics both on the train and test sets. The hyper-parameters are stored in the `options` tuple. 
-"""
-
-# ╔═╡ be2184a8-fed0-4a97-81cb-0b727f9c0444
-md"""
-The following block defines the generic learning function.
-"""
-
-# ╔═╡ c5e1ae85-8168-4cce-9b20-1cf21393a49f
-md"""
-## IV - Pipelines
-"""
-
-# ╔═╡ 3d28d1b4-9f99-44f6-97b5-110f675b5c22
-md"""
-As you know, the solution of a linear program is not differentiable with respect to its cost vector. Therefore, we need additional tricks to be able to update the parameters of the CNN defined by `create_warcraft_embedding`. Two points of view can be adopted: perturb or regularize the maximization problem. They can be unified when introducing probabilistic combinatorial layers, detailed in this [paper](https://arxiv.org/pdf/2207.13513.pdf). They are used in two different frameworks:
-
-- Learning by imitation when we have target shortest path examples in the dataset.
-- Learning by experience when we only have access to the images and to a black-box cost function to evaluate any candidate path.
-
-In this section, we explore different combinatorial layers, as well as the learning by imitation and learning by experience settings.
-"""
-
-# ╔═╡ f532c661-79ad-4c30-8aec-0379a84a3204
-md"""
-### a) Learning by imitation with additive perturbation
-"""
-
-# ╔═╡ d84a9ab0-647a-4bb2-978d-4720b6588d9c
-md"""
-#### 1) Hyperparameters
-"""
-
-# ╔═╡ d4e50757-e67c-4206-a943-c2793d1680ab
-md"""
-We first define the hyper-parameters for the learning process. They include:
-- The regularization size $\varepsilon$.
-- The number of samples drawn for the approximation of the expectation $M$.
-- The number of learning epochs `nb_epochs`.
-- The batch size for the stochastic gradient descent `batch_size`.
-- The starting learning rate for ADAM optimizer `lr_start`.
-"""
-
-# ╔═╡ 84800e5c-9ce2-4a37-aa3c-8f8e7e3d708c
-begin
-	ε = 0.1
-	M = 10
-	nb_epochs = 10
-	batch_size = 5
-	lr_start = 1e-3
-end;
 
 # ╔═╡ 90c5cf85-de79-43db-8cba-39fda06938e6
 begin 
@@ -1200,14 +829,385 @@ begin
 	end
 end;
 
+# ╔═╡ 03bc22e3-2afa-4139-b8a4-b801dd8d3f4d
+md"""
+### d) Import and explore the dataset
+"""
+
+# ╔═╡ 3921124d-4f08-4f3c-856b-ad876d31e2c1
+md"""
+Once we have both defined the functions to read and create a dataset, and to visualize it, we want to have a look at images and paths. Before that, we set the size of the dataset, as well as the train proportion: 
+"""
+
+# ╔═╡ 948eae34-738d-4c60-98b9-8b69b1eb9b68
+nb_samples, train_prop = 100, 0.8;
+
+# ╔═╡ 52292d94-5245-42b4-9c11-1c53dfc5d5fb
+info(md"We focus only on $nb_samples dataset points, and use a $(trunc(Int, train_prop*100))% / $(trunc(Int, 100 - train_prop*100))% train/test split.")
+
+# ╔═╡ 614a469e-0530-4983-82a9-e521097d57a9
+begin
+	dataset = create_dataset(decompressed_path, nb_samples)
+	train_dataset, test_dataset = train_test_split(dataset, train_prop);
+end;
+
+# ╔═╡ 41a134b8-0c8a-4d79-931d-5df7ea524f73
+md"""
+We can have a glimpse at the dataset, use the slider to visualize each tuple (image, weights, label path).
+"""
+
+# ╔═╡ 42151898-a5a9-4677-aa0e-675e986bb41b
+md"""
+``n =`` $(@bind n Slider(1:length(dataset); default=1, show_value=true))
+"""
+
 # ╔═╡ c4b40ca8-00b0-4ea0-9793-f06adcb44f12
 plot_image_masks_weights_path(dataset[n]...)
+
+# ╔═╡ ebee2d90-d2a8-44c1-ae0b-2823c007bf1d
+md"""
+## II - Combinatorial functions
+"""
+
+# ╔═╡ 63a63ca9-841e-40d7-b314-d5582772b634
+md"""
+We focus on additional optimization functions to define the combinatorial layer of our pipelines.
+"""
+
+# ╔═╡ 0fbd9c29-c5b6-407d-931d-945d1b915cd2
+md"""
+### a) Recap on the shortest path problem
+"""
+
+# ╔═╡ f960b309-0250-4692-96e0-a73f79f84c71
+md"""
+Let $D = (V, A)$ be a digraph, $(c_a)_{a \in A}$ the cost associated to the arcs of the digraph, and $(o, d) \in V^2$ the origin and destination nodes. The problem we consider is the following:
+
+**Shortest path problem:** Find an elementary path $P$ from node $o$ to node $d$ in the digraph $D$ with minimum cost $c(P) = \sum_{a \in P} c_a$.
+"""
+
+# ╔═╡ a88dfb2e-6aba-4ceb-b20a-829ebd3243bd
+md"""
+###  b) From shortest path to generic maximizer
+"""
+
+# ╔═╡ a16674b9-e4bf-4e12-a9c5-f67a61f24d7b
+md"""
+Now that we have defined and implemented an algorithm to deal with the shortest path problem, we wrap it in a maximizer function to match the generic framework of structured prediction.
+
+The maximizer needs to take predicted weights `θ` as their only input, and can take some keyword arguments if needed (some instance information for example).
+"""
+
+# ╔═╡ 38f354ec-0df3-4e19-9afb-5342c89b7275
+function dijkstra_maximizer(θ::AbstractMatrix; kwargs...)
+	g = GridGraph(-θ; directions=QUEEN_DIRECTIONS)
+	path = grid_dijkstra(g, 1, nv(g))
+	y = path_to_matrix(g, path)
+	return y
+end
+
+# ╔═╡ b6e0906e-6b76-44b8-a736-e7a872f8c2d7
+"""
+    grid_bellman_ford_satellite(g, s, d, length_max)
+
+Apply the Bellman-Ford algorithm on an `GridGraph` `g`, and return a `ShortestPathTree` with source `s` and destination `d`,
+among the paths having length smaller than `length_max`.
+"""
+function grid_bellman_ford_satellite(g::GridGraph{T,R,W,A}, s::Integer, d::Integer, length_max::Int = nv(g)) where {T,R,W,A}
+    # Init storage
+    parents = zeros(Int, nv(g), length_max + 1)
+    dists = fill(Inf, nv(g), length_max + 1)
+    # Add source
+    dists[s, 1] = zero(T)
+    # Main loop
+    for k in 1:length_max
+        for v in vertices(g)
+            for u in inneighbors(g, v)
+                d_u = dists[u, k]
+                if !isinf(d_u)
+                    d_v = dists[v, k + 1]
+                    d_v_through_u = d_u + GridGraphs.vertex_weight(g, v)
+                    if isinf(d_v) || (d_v_through_u < d_v)
+                        dists[v, k + 1] = d_v_through_u
+                        parents[v, k + 1] = u
+                    end
+                end
+            end
+        end
+    end
+    # Get length of the shortest path
+    k_short = argmin(dists[d,:])
+    if isinf(dists[d, k_short])
+        println("No shortest path with less than $length_max arcs")
+        return Int[]
+    end
+    # Deduce the path
+    v = d
+    path = [v]
+    k = k_short
+    while v != s
+        v = parents[v, k]
+        if v == 0
+            return Int[]
+        else
+            pushfirst!(path, v)
+            k = k - 1
+        end
+    end
+    return path
+end
+
+# ╔═╡ 3e54bce5-faf9-4954-980f-5d70737a3494
+function bellman_maximizer(θ::AbstractMatrix; kwargs...)
+	g = GridGraph(-θ; directions=QUEEN_DIRECTIONS)
+	path = grid_bellman_ford_satellite(g, 1, nv(g))
+	y = path_to_matrix(g, path)
+	return y
+end
+
+# ╔═╡ 22a00cb0-5aca-492b-beec-407ac7ef13d4
+danger(md"`InferOpt.jl` wrappers only take maximization algorithms as input. Don't forget to change some signs if your solving a minimization problem instead.")
+
+# ╔═╡ 596f8aee-34f4-4304-abbe-7100383ce0d1
+md"""
+!!! info "The maximizer function will depend on the pipeline"
+	Note that we use the function `grid_dijkstra` already implemented in the `GridGraphs.jl` package when we deal with non-negative cell costs. In the following, we will use either Dijkstra or Ford-Bellman algorithm depending on the learning pipeline. You will have to modify the maximizer function to use depending on the experience you do.
+"""
+
+# ╔═╡ 8581d294-4d19-40dc-a10a-79e8922ecedb
+md"""
+``n_p =`` $(@bind n_p Slider(1:length(dataset); default=1, show_value=true))
+"""
 
 # ╔═╡ 62d66917-ef2e-4e64-ae6d-c281b8e81b4f
 plot_image_weights_masks(dataset[n_p][1], dataset[n_p][3], dataset[n_p][2])
 
+# ╔═╡ 67d8f55d-bdbe-4407-bf9b-b34805edcb76
+ground_truth_path = bellman_maximizer(-dataset[n_p][3])
+
 # ╔═╡ 34701d56-63d1-4f6d-b3d0-52705f4f8820
 plot_image_weights_path(dataset[n_p][1], ground_truth_path, dataset[n_p][3]; θ_title="Weights", y_title="Path", θ_true=dataset[n_p][3])
+
+# ╔═╡ 92cbd9fb-2fdf-45ed-aed5-2cc772c09a93
+dataset[n_p][3]
+
+# ╔═╡ 87cbc472-6330-4a27-b10f-b8d881b79249
+md"""
+The following cell is used to create and save the shortest paths based on ground truth weights:
+"""
+
+# ╔═╡ 3476d181-ba67-4597-b05c-9caec23fa1e5
+# begin
+# 	metadata_df = DataFrame(CSV.File(joinpath(decompressed_path, "metadata.csv")))
+# 	names_dtype = metadata_df[metadata_df[!, "split"] .== "train", "image_id"][1:nb_samples]
+# 	@progress for (i, (x, m, w, y)) in enumerate(dataset)
+# 		ground_truth_path = bellman_maximizer(-w)
+# 		npzwrite(joinpath(decompressed_path, "train", "$(names_dtype[i])_shortest_path.npy"), ground_truth_path)
+# 	end
+# end
+
+# ╔═╡ b8b79a69-2bbb-4329-a1d0-3429230787c1
+md"""
+## III - Learning functions
+"""
+
+# ╔═╡ 37761f25-bf80-47ee-9fca-06fce1047364
+md"""
+### a) Convolutional neural network: predictor for the cost vector
+"""
+
+# ╔═╡ 97df1403-7858-4715-856d-f330926a9bfd
+md"""
+We implemenat several elementary functions to define our machine learning predictor for the cell costs.
+"""
+
+# ╔═╡ 02d14966-9887-40cb-a04d-09774ff72d27
+"""
+    average_tensor(x)
+
+Average the tensor `x` along its third axis.
+"""
+function average_tensor(x)
+    return sum(x, dims = [3])/size(x)[3]
+end
+
+# ╔═╡ a9ca100d-8881-4c31-9ab9-e987baf91e2c
+"""
+    neg_tensor(x)
+
+Compute minus softplus element-wise on tensor `x`.
+"""
+function neg_tensor(x)
+    return -relu.(x)
+end
+
+# ╔═╡ 721893e8-9252-4fcd-9ef7-59b70bffb916
+"""
+    squeeze_last_dims(x)
+
+Squeeze two last dimensions on tensor `x`.
+"""
+function squeeze_last_dims(x)
+    return reshape(x, size(x, 1), size(x, 2))
+end
+
+# ╔═╡ 8666701b-223f-4dfc-a4ff-aec17c7e0ab2
+md"""
+!!! info "CNN as predictor"
+	The following function defines the convolutional neural network we will use as cell costs predictor.
+"""
+
+# ╔═╡ 1df5a84a-7ef3-43fc-8ffe-6a8245b31f8e
+"""
+    create_satellite_embedding()
+
+Create and return a `Flux.Chain` embedding for the satellite images, inspired by [differentiation of blackbox combinatorial solvers](https://github.com/martius-lab/blackbox-differentiation-combinatorial-solvers/blob/master/models.py).
+
+The embedding is made as follows:
+1) The first 5 layers of ResNet18 (convolution, batch normalization, relu, maxpooling and first resnet block).
+2) An adaptive maxpooling layer to get a (12x12x64) tensor per input image.
+3) An average over the third axis (of size 64) to get a (12x12x1) tensor per input image.
+4) The element-wize `neg_tensor` function to get cell weights of proper sign to apply shortest path algorithms.
+5) A squeeze function to forget the two last dimensions. 
+"""
+function create_satellite_embedding()
+    resnet18 = ResNet(18; pretrain=false, nclasses=1)
+    model_embedding = Chain(
+		resnet18.layers[1][1][1],
+		resnet18.layers[1][1][2],
+		resnet18.layers[1][1][3],
+		resnet18.layers[1][2][1],
+        AdaptiveMaxPool((32,32)),
+        average_tensor,
+        neg_tensor,
+        squeeze_last_dims,
+    )
+    return model_embedding
+end
+
+# ╔═╡ f42d1915-3490-4ae4-bb19-ac1383f453dc
+md"""
+We can build the encoder this way:
+"""
+
+# ╔═╡ 87f1b50a-cb53-4aac-aed6-b3c7c36959b0
+initial_encoder = create_satellite_embedding() |> gpu
+
+# ╔═╡ 10ce5116-edfa-4b1a-9f9f-7400e5b761ec
+md"""
+### b) Loss and gap utility functions
+"""
+
+# ╔═╡ c69f0a97-84d6-4fd9-bf02-4cfa2132a9c1
+md"""
+In the cell below, we define the `cost` function seen as black-box to evaluate the cost of a given path on the grid, given the true costs `c_true`.
+"""
+
+# ╔═╡ aa35bdee-3d2c-49ff-9483-795e0024de0c
+cost(y; c_true) = dot(y, c_true)
+
+# ╔═╡ 3df21310-c44a-4132-acc0-a0db265a23a9
+md"""
+During training, we want to evaluate the quality of the predicted paths, both on the train and test datasets. We define the shortest path cost ratio between a candidate shortest path $\hat{y}$ and the label shortest path $y$ as: $r(\hat{y},y) = c(\hat{y}) / c(y)$.
+"""
+
+# ╔═╡ 7469895b-06d2-4832-b981-d62b14a80fa8
+md"""
+!!! info
+	The following code defines the `shortest_path_cost_ratio` function. The candidate path $\hat{y}$ is given by the output of `model` applied on image `x`, and `y` is the target shortest path.
+"""
+
+# ╔═╡ 8ce55cdd-6c1a-4fc3-843a-aa6ed1ad4c62
+"""
+	shortest_path_cost_ratio(model, x, y, kwargs)
+Compute the ratio between the cost of the solution given by the `model` cell costs and the cost of the true solution.
+We evaluate both the shortest path with respect to the weights given by `model(x)` and the labelled shortest path `y`
+using the true cell costs stored in `kwargs.wg.weights`. 
+This ratio is by definition greater than one. The closer it is to one, the better is the solution given by the current 
+weights of `model`. We thus track this metric during training.
+"""
+function shortest_path_cost_ratio(model, x, y_true, θ_true; maximizer)
+	θ_cpu = model(x) |> cpu
+	y = maximizer(θ_cpu)
+	return dot(cpu(θ_true), y) / dot(cpu(θ_true), cpu(y_true))
+end
+
+# ╔═╡ 15ffc121-b27c-4eec-a829-a05904215426
+"""
+	shortest_path_cost_ratio(model, batch)
+Compute the average cost ratio between computed and true shorest paths over `batch`. 
+"""
+function shortest_path_cost_ratio(model, batch; maximizer)
+	return sum(shortest_path_cost_ratio(model, item[1], item[4], item[3]; maximizer) for item in batch) / length(batch)
+end
+
+# ╔═╡ 0adbb1a4-6e19-40d5-8f9d-865d932cd745
+"""
+	shortest_path_cost_gap(; model, dataset)
+Compute the average cost ratio between computed and true shorest paths over `dataset`. 
+"""
+function shortest_path_cost_gap(; model, dataset, maximizer)
+	return (sum(shortest_path_cost_ratio(model, batch; maximizer) for batch in dataset) / length(dataset) - 1) * 100
+end
+
+# ╔═╡ fd3a4158-5b98-4ddb-a8bd-3603259ee490
+md"""
+### c) Main training function
+"""
+
+# ╔═╡ ea70f8e7-e25b-49cc-8cc2-e25b1aef6b0a
+md"""
+We now consider the generic learning function. We want to minimize a given `flux_loss` over the `train_dataset`, by updating the parameters of `encoder`. We do so using `Flux.jl` package which contains utility functions to backpropagate in a stochastic gradient descent framework. We also track the loss and cost ratio metrics both on the train and test sets. The hyper-parameters are stored in the `options` tuple. 
+"""
+
+# ╔═╡ be2184a8-fed0-4a97-81cb-0b727f9c0444
+md"""
+The following block defines the generic learning function.
+"""
+
+# ╔═╡ c5e1ae85-8168-4cce-9b20-1cf21393a49f
+md"""
+## IV - Pipelines
+"""
+
+# ╔═╡ 3d28d1b4-9f99-44f6-97b5-110f675b5c22
+md"""
+As you know, the solution of a linear program is not differentiable with respect to its cost vector. Therefore, we need additional tricks to be able to update the parameters of the CNN defined by `create_warcraft_embedding`. Two points of view can be adopted: perturb or regularize the maximization problem. They can be unified when introducing probabilistic combinatorial layers, detailed in this [paper](https://arxiv.org/pdf/2207.13513.pdf). They are used in two different frameworks:
+
+- Learning by imitation when we have target shortest path examples in the dataset.
+- Learning by experience when we only have access to the images and to a black-box cost function to evaluate any candidate path.
+
+In this section, we explore different combinatorial layers, as well as the learning by imitation and learning by experience settings.
+"""
+
+# ╔═╡ f532c661-79ad-4c30-8aec-0379a84a3204
+md"""
+### a) Learning by imitation with additive perturbation
+"""
+
+# ╔═╡ d84a9ab0-647a-4bb2-978d-4720b6588d9c
+md"""
+#### 1) Hyperparameters
+"""
+
+# ╔═╡ d4e50757-e67c-4206-a943-c2793d1680ab
+md"""
+We first define the hyper-parameters for the learning process. They include:
+- The regularization size $\varepsilon$.
+- The number of samples drawn for the approximation of the expectation $M$.
+- The number of learning epochs `nb_epochs`.
+- The batch size for the stochastic gradient descent `batch_size`.
+- The starting learning rate for ADAM optimizer `lr_start`.
+"""
+
+# ╔═╡ 84800e5c-9ce2-4a37-aa3c-8f8e7e3d708c
+begin
+	ε = 0.1
+	M = 10
+	nb_epochs = 10
+	batch_size = 5
+	lr_start = 1e-3
+end;
 
 # ╔═╡ 6619b9ae-2608-4c8d-9561-bc579d673651
 function train_function!(;
@@ -1437,7 +1437,7 @@ cuDNN = "~1.3.0"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.10.1"
+julia_version = "1.10.2"
 manifest_format = "2.0"
 project_hash = "08e26707c7ba253a41472736c7d8f1f44acf3551"
 
